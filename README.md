@@ -34,7 +34,6 @@ npm run dev
 - **Spacebar**: Open/close the jar lid
 - **R**: Reset the simulation (fireflies return to jar)
 
-## Features Implemented
 
 ## Topics from Course
 We plan to implement features employing the following topics from the course:
