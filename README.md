@@ -36,7 +36,7 @@ npm run dev
 
 ## Features Implemented
 
-### Topics from Course
+## Topics from Course
 We plan to implement features employing the following topics from the course:
 perspective projection,
 matrices for transforming and viewing,
@@ -46,10 +46,15 @@ texture mapping & normal mapping for frost on the jar, and
 instanced rendering (all boids drawn in one draw call)
 
 
-### Advanced Features (Prototype)
-- ✅ **AI Algorithm**: Boids swarm behavior implemented
-- 🔄 **Bump Mapping**: To be implemented for ground texture
-- 🔄 **Shadowing**: Basic shadow setup, to be enhanced with firefly light shadows
+## Advanced Features (Prototype)
+Our two key advanced features are bump maps, AI algorithms, and shadowing.
+
+We will use bump maps to create the texture of the ground, creating a grayscale texture and generating a corresponding normal map. We will pass the normal map to the fragment shader and modify the interpolated surface normal using the sampled normal map vector. This will be combined with Phong shading to produce variations in response to light, allowing for fewer polygons, but still conveying texture detail. 
+ 
+We will also utilize the Boids algorithm (an advanced AI algorithm) to simulate swarm motion for each firefly. Fireflies will steer away from nearby fireflies, match velocity with the average heading of nearby boids, and steer towards the center of mass of the local swarm. 
+
+Further, we will implement shadowing by using light from the fireflies to cast shadows on objects outside of the jar, which involves rendering a depth map from the light's perspective and then comparing it to the camera's view to determine which points lie in shadow. The AI-generated image to the right shows how, in general, lighting from inside the jar affects shadowing outside the jar. This is what we intend to replicate in our graphics.
+
 
 ## Project Structure
 
@@ -60,28 +65,3 @@ Project/
 ├── package.json       # Dependencies
 └── README.md          # This file
 ```
-
-## Next Steps
-
-1. **Modeling**: Create/load mason jar OBJ model using Blender/Maya
-2. **Instanced Rendering**: Optimize firefly rendering using instanced meshes
-3. **Bump Mapping**: Add normal maps for ground texture
-4. **Enhanced Shadowing**: Implement shadows cast by firefly lights
-5. **Visual Polish**: Improve firefly glow effect, jar transparency, lighting
-
-## Technical Details
-
-### Boids Algorithm
-The swarm behavior is controlled by three main forces:
-- **Separation**: Fireflies avoid crowding neighbors
-- **Alignment**: Fireflies steer towards average heading of neighbors
-- **Cohesion**: Fireflies move toward average position of neighbors
-
-### Jar Boundary
-Fireflies are constrained within the jar boundaries when the jar is closed. When opened, they can escape and disperse.
-
-## Notes
-- Uses Three.js for 3D graphics
-- OBJ loader is set up and ready for custom jar models
-- All code follows WebGL/Three.js best practices
-
