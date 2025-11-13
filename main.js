@@ -114,11 +114,11 @@ const fireflyMaterial = new THREE.MeshPhongMaterial({
     shininess: 100
 });
 
-// Initialize fireflies inside the jar
+// initialize fireflies inside the jar
 for (let i = 0; i < FIREFLY_COUNT; i++) {
     const firefly = new THREE.Mesh(fireflyGeometry, fireflyMaterial);
     
-    // Random position inside jar (cylinder)
+    // random position inside jar (cylinder)
     const angle = Math.random() * Math.PI * 2;
     const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
     const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
@@ -163,7 +163,7 @@ function separation(fireflyIndex) {
         if (distance < BOIDS_CONFIG.separationDistance && distance > 0) {
             const diff = new THREE.Vector3().subVectors(pos, fireflies[i].position);
             diff.normalize();
-            diff.divideScalar(distance); // Weight by distance
+            diff.divideScalar(distance); // weight by distance
             steer.add(diff);
             count++;
         }
