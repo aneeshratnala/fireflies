@@ -1,12 +1,17 @@
 # Fireflies - CS174A Project
 
 ## Team Members
-- Aneesh Ratnala (aneeshratnala@ucla.edu, 106490501)
-- Sanjay Dhamodharan (sanjayd@g.ucla.edu, 106380244)
-- Andrew Meng (andrewm17us@gmail.com, 406424798)
+- Aneesh Ratnala, Sanjay Dhamodharan, Andrew Meng
 
-## Project Description
-An interactive 3D simulation of 100 fireflies in a mason jar using the Boids algorithm for swarm behavior. Users can interact with the swarm by clicking to "poke" it, and can open the jar to release the fireflies.
+## Project Description & Theme
+Our project animates one hundred glowing fireflies coming out of a mason jar. When the user clicks on the fireflies, the swarm moves together and separates as one unit, able to part and reform automatically. Thus, the fireflies are not moving randomly, but as a cohesive swarm.
+Our "story" is driven by two key user interactions:
+Probing: When the user's cursor "pokes" the glass, the swarm reacts as a single organism. It will recoil from the point of contact, part to let the "finger" through, and then slowly reform its pattern once the cursor moves away.
+Release: When the user presses the spacebar, the jar's lid animates, unscrewing and opening. This triggers a change in the fireflies' AI, causing them to spill out of the jar and disperse into the background, leaving the jar empty.
+The example on the left (from https://ercang.github.io/boids-js/) depicts what we are trying to accomplish. As seen, there are multiple “swarms” of moving objects (the small prisms) that move independently but within the confines of their greater swarm. 
+
+The AI-generated image to the right (from Gemini) depicts, on the more artistic side, inspiration for what we want our project to look like. Inspired by natural themes, our graphics will likely not be as intricate, but our functionality will be intact.
+
 
 ## Setup Instructions
 
@@ -20,7 +25,7 @@ npm install
 npm run dev
 ```
 
-3. Open your browser to the URL shown (typically `http://localhost:5173/`)
+3. Open your browser to the localhost URL shown.
 
 ## Controls
 
@@ -31,13 +36,15 @@ npm run dev
 
 ## Features Implemented
 
-### Initial Demo Features
-- ✅ 100 fireflies rendered using individual meshes (can be optimized to instanced rendering)
-- ✅ Mason jar modeled using Three.js geometry
-- ✅ Boids algorithm prototype (separation, alignment, cohesion)
-- ✅ Mouse/keyboard navigation functional
-- ✅ Phong shading for materials
-- ✅ Basic interactivity (poke, open jar, reset)
+### Topics from Course
+We plan to implement features employing the following topics from the course:
+perspective projection,
+matrices for transforming and viewing,
+Phong shading for the firefly glow and the surface of the jar,
+smooth shading (interpolation),
+texture mapping & normal mapping for frost on the jar, and
+instanced rendering (all boids drawn in one draw call)
+
 
 ### Advanced Features (Prototype)
 - ✅ **AI Algorithm**: Boids swarm behavior implemented
