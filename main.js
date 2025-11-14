@@ -15,6 +15,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
+// Use correct output encoding for colors
+renderer.outputEncoding = THREE.sRGBEncoding;
 
 // Camera controls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -24,22 +26,66 @@ controls.minDistance = 5;
 controls.maxDistance = 50;
 
 // ==================== LIGHTING ====================
-const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+const ambientLight = new THREE.AmbientLight(0x404040, 0.2);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
 directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
 
+
+
 // ==================== GROUND ====================
-const groundGeometry = new THREE.PlaneGeometry(50, 50);
-const groundMaterial = new THREE.MeshPhongMaterial({ 
-    color: 0x2a2a3a,
-    shininess: 30
+
+const groundGeometry = new THREE.PlaneGeometry(50, 50, 512, 512);
+const groundMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.65,
+    metalness: 0.0
 });
+
+const loader = new THREE.TextureLoader();
+// correct paths (textures are at `textures/`)
+const dispPath = 'textures/gravelly_sand_4k.blend/textures/gravelly_sand_disp_4k.png';
+const colorPath = 'textures/gravelly_sand_4k.blend/textures/gravelly_sand_diff_4k.jpg';
+
+// load displacement/bump (height) texture
+loader.load(
+    dispPath,
+    (tex) => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(2, 2);
+        // displacement/bump maps should use linear encoding
+        tex.encoding = THREE.LinearEncoding;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        groundMaterial.displacementMap = tex;
+        groundMaterial.bumpMap = tex; // also use as bump for extra normal detail
+        groundMaterial.bumpScale = 0.5;
+        groundMaterial.displacementScale = 0.8;
+        groundMaterial.needsUpdate = true;
+    },
+    undefined,
+    (err) => console.warn('Failed to load displacement texture:', dispPath, err)
+);
+
+// load color (albedo) texture
+loader.load(
+    colorPath,
+    (tex) => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(2, 2);
+        tex.encoding = THREE.sRGBEncoding;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        groundMaterial.map = tex;
+        groundMaterial.needsUpdate = true;
+    },
+    undefined,
+    (err) => console.warn('Failed to load color texture:', colorPath, err)
+);
+
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -2;
