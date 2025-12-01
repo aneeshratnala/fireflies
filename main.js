@@ -143,9 +143,9 @@ const BOIDS_CONFIG = {
     cohesionDistance: 2.0,    // Distance to move toward neighbors
     separationWeight: 1.5,
     alignmentWeight: 1.0,
-    cohesionWeight: 1.0,
+    cohesionWeight: 1.2,
     maxSpeed: 0.1,
-    maxForce: 0.02,
+    maxForce: 0.05,
     jarRadius: 1.8,           // Radius of jar (slightly smaller than visual)
     jarHeight: 3.5,           // Height of jar
     jarCenter: new THREE.Vector3(0, 0, 0)
@@ -197,7 +197,7 @@ function limit(vector, max) {
     return vector;
 }
 
-function separation(fireflyIndex) {
+function separation(fireflyIndex, radius = BOIDS_CONFIG.separationDistance) {
     const steer = new THREE.Vector3();
     let count = 0;
     const pos = fireflies[fireflyIndex].position;
@@ -206,7 +206,9 @@ function separation(fireflyIndex) {
         if (i === fireflyIndex) continue;
         
         const distance = pos.distanceTo(fireflies[i].position);
-        if (distance < BOIDS_CONFIG.separationDistance && distance > 0) {
+        
+        // Use the passed 'radius' instead of the constant
+        if (distance < radius && distance > 0) {
             const diff = new THREE.Vector3().subVectors(pos, fireflies[i].position);
             diff.normalize();
             diff.divideScalar(distance); // weight by distance
@@ -282,48 +284,156 @@ function cohesion(fireflyIndex) {
 
 function applyJarBoundary(fireflyIndex) {
     const pos = fireflies[fireflyIndex].position;
-    const center = BOIDS_CONFIG.jarCenter;
+    const vel = fireflyVelocities[fireflyIndex];
     
-    // Check if inside jar (cylinder)
-    const distanceFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
-    const height = pos.y;
-    
-    // Boundary constraints
+    // Config
+    const r = BOIDS_CONFIG.jarRadius;
+    const h = BOIDS_CONFIG.jarHeight / 2; // ~1.75
+    const GROUND_LEVEL = -1.9; // Just above the visual floor (-2.0)
+
+    // ================= 1. GLOBAL FLOOR =================
+    // This applies whether they are inside OR outside the jar
+    if (pos.y < GROUND_LEVEL) {
+        pos.y = GROUND_LEVEL; // Hard stop
+        if (vel.y < 0) {
+            vel.y *= -0.5; // Bounce off the ground
+        }
+    }
+
+    // ================= 2. LID (Only if closed) =================
     if (!jarOpen) {
-        // Keep inside jar
-        if (distanceFromCenter > BOIDS_CONFIG.jarRadius) {
-            const pushBack = new THREE.Vector3(-pos.x, 0, -pos.z).normalize();
-            fireflyVelocities[fireflyIndex].add(pushBack.multiplyScalar(0.1));
+        if (pos.y > h) {
+            pos.y = h - 0.01;
+            if (vel.y > 0) vel.y *= -0.5;
         }
-        
-        if (height > BOIDS_CONFIG.jarHeight / 2) {
-            fireflyVelocities[fireflyIndex].y -= 0.1;
-        }
-        if (height < -BOIDS_CONFIG.jarHeight / 2) {
-            fireflyVelocities[fireflyIndex].y += 0.1;
+    }
+
+    // ================= 3. GLASS WALLS =================
+    const distSq = pos.x * pos.x + pos.z * pos.z;
+    
+    // Are we outside the glass radius?
+    if (distSq > r * r) {
+        // We are allowed outside if: Jar is OPEN AND we are ABOVE the rim
+        const isAboveRim = pos.y > h;
+        const canEscape = jarOpen && isAboveRim;
+
+        if (!canEscape) {
+            // We are trapped. Calculate physics to bounce off the glass.
+            
+            const dist = Math.sqrt(distSq);
+            // 1. Teleport to surface (Hard Clamp)
+            const correctionScale = (r - 0.01) / dist; 
+            pos.x *= correctionScale;
+            pos.z *= correctionScale;
+
+            // 2. Reflect Velocity
+            const normalX = pos.x / dist;
+            const normalZ = pos.z / dist;
+            const vDotN = (vel.x * normalX) + (vel.z * normalZ);
+            
+            // Only bounce if heading outward
+            if (vDotN > 0) {
+                vel.x -= 2 * vDotN * normalX;
+                vel.z -= 2 * vDotN * normalZ;
+                
+                // Friction
+                vel.x *= 0.5;
+                vel.z *= 0.5;
+            }
         }
     }
 }
+function wander(fireflyIndex) {
+    // Create a random vector
+    const noise = new THREE.Vector3(
+        Math.random() - 0.5,
+        Math.random() - 0.5,
+        Math.random() - 0.5
+    );
+    
+    // Normalize and scale it
+    noise.normalize().multiplyScalar(BOIDS_CONFIG.maxSpeed);
+    
+    // Steer towards this random point
+    const steer = new THREE.Vector3().subVectors(noise, fireflyVelocities[fireflyIndex]);
+    
+    // Limit the turning speed so they don't jitter
+    limit(steer, BOIDS_CONFIG.maxForce);
+    
+    // Multiply by a weight (stronger means more erratic movement)
+    return steer.multiplyScalar(0.5); 
+}
 
 function updateBoids() {
+    const REPULSION_RADIUS = 3.5;
+    const MAX_BURST_MULTIPLIER = 8.0;
+
     for (let i = 0; i < FIREFLY_COUNT; i++) {
-        // Calculate steering forces
-        const sep = separation(i);
+        // === 1. DETERMINE FLOCKING STATE ===
+        
+        // SEPARATION RADIUS
+        // Open: 6.0 (Target: Spread across screen)
+        // Closed: 0.5 (Target: Tight ball)
+        const sepRadius = jarOpen ? 6.0 : BOIDS_CONFIG.separationDistance;
+        
+        const sep = separation(i, sepRadius);
         const ali = alignment(i);
         const coh = cohesion(i);
+        const rep = getRepulsion(i);
+        const wan = wander(i); 
+
+        let currentSpeedLimit = BOIDS_CONFIG.maxSpeed;
         
-        // Apply forces
-        fireflyVelocities[i].add(sep);
-        fireflyVelocities[i].add(ali);
-        fireflyVelocities[i].add(coh);
+        // === 2. CALCULATE POKE INTERACTION ===
+        let flockingStrength = 1.0; 
         
-        // Apply jar boundary
+        if (pokePosition) {
+            const dist = fireflies[i].position.distanceTo(pokePosition);
+            if (dist < REPULSION_RADIUS) {
+                const timeProgress = pokeTime / POKE_DURATION;
+                flockingStrength = Math.pow(timeProgress, 2); 
+                
+                const proximity = 1.0 - (dist / REPULSION_RADIUS);
+                const decayFactor = proximity * proximity * proximity;
+                const burstAmount = (BOIDS_CONFIG.maxSpeed * MAX_BURST_MULTIPLIER) * decayFactor;
+                currentSpeedLimit += burstAmount * (1.0 - timeProgress);
+            }
+        }
+
+        // === 3. APPLY FORCES ===
+        
+        // Apply Repulsion (Poke)
+        if (pokePosition) fireflyVelocities[i].add(rep);
+
+        // Apply Separation
+        // CHANGE: When jar is open, we multiply by 0.1 instead of 2.0.
+        // This is the "Trickle" factor. They feel the pressure to leave, but they act on it very slowly.
+        fireflyVelocities[i].add(sep.multiplyScalar(jarOpen ? 0.1 : 1.0));
+
+        if (jarOpen) {
+            // === OPEN JAR (Slow Diffusion) ===
+            
+            // 1. Tiny Cohesion (Requested)
+            // Keeps them vaguely related to each other, preventing total isolation.
+            fireflyVelocities[i].add(coh.multiplyScalar(0.1 * flockingStrength));
+
+            // 2. Weak Alignment
+            fireflyVelocities[i].add(ali.multiplyScalar(0.1 * flockingStrength));
+
+            // 3. Gentle Wander
+            // Reduced to 0.5 to prevent them from zooming around too fast.
+            fireflyVelocities[i].add(wan.multiplyScalar(0.5));
+
+        } else {
+            // === CLOSED JAR (Swarm) ===
+            fireflyVelocities[i].add(ali.multiplyScalar(flockingStrength));
+            fireflyVelocities[i].add(coh.multiplyScalar(flockingStrength));
+        }
+
+        // === 4. LIMITS ===
         applyJarBoundary(i);
+        limit(fireflyVelocities[i], currentSpeedLimit);
         
-        // Limit velocity
-        limit(fireflyVelocities[i], BOIDS_CONFIG.maxSpeed);
-        
-        // Update position
         fireflies[i].position.add(fireflyVelocities[i]);
     }
 }
@@ -340,30 +450,42 @@ function onMouseClick(event) {
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     
     raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(fireflies);
+
+    // Still intersect the JAR, not the fireflies, for accuracy
+    const intersects = raycaster.intersectObject(jarBody);
     
     if (intersects.length > 0) {
-        // Get world position of click
-        const worldPosition = new THREE.Vector3();
-        raycaster.ray.at(intersects[0].distance, worldPosition);
-        pokePosition = worldPosition;
-        pokeTime = 0;
-        
-        // Apply repulsion force to nearby fireflies
-        const REPULSION_RADIUS = 2.0;
-        const REPULSION_FORCE = 0.3;
-        
-        for (let i = 0; i < FIREFLY_COUNT; i++) {
-            const distance = fireflies[i].position.distanceTo(pokePosition);
-            if (distance < REPULSION_RADIUS) {
-                const repulsion = new THREE.Vector3()
-                    .subVectors(fireflies[i].position, pokePosition)
-                    .normalize()
-                    .multiplyScalar(REPULSION_FORCE * (1 - distance / REPULSION_RADIUS));
-                fireflyVelocities[i].add(repulsion);
-            }
-        }
+        pokePosition = intersects[0].point;
+        pokeTime = 0; // Reset timer to start the effect
     }
+}
+
+function getRepulsion(fireflyIndex) {
+    if (!pokePosition) return new THREE.Vector3();
+
+    const REPULSION_RADIUS = 3.5; // Slightly larger radius
+    const MAX_REPULSION_FORCE = 2.0; // Much stronger kick
+
+    const pos = fireflies[fireflyIndex].position;
+    const distance = pos.distanceTo(pokePosition);
+
+    // Only affect fireflies inside the radius
+    if (distance < REPULSION_RADIUS) {
+        const steer = new THREE.Vector3().subVectors(pos, pokePosition);
+        steer.normalize();
+
+        // INVERSE SQUARE: Creates a much sharper "wall" of force
+        // The closer to the center, the force increases exponentially
+        const strength = 1 - (distance / REPULSION_RADIUS);
+        const exponentialStrength = strength * strength; 
+        
+        // Weight by time: Strongest immediately after click
+        const timeWeight = 1 - (pokeTime / POKE_DURATION);
+        
+        return steer.multiplyScalar(MAX_REPULSION_FORCE * exponentialStrength * timeWeight);
+    }
+
+    return new THREE.Vector3();
 }
 
 function updatePokeEffect(deltaTime) {
