@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 
 // ==================== SCENE SETUP ====================
 const scene = new THREE.Scene();
@@ -16,7 +16,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
-camera.position.set(0, 5, 15);
+camera.position.set(-5, 1.6, 0);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -80,12 +80,9 @@ const bloomPass = new UnrealBloomPass(
     0.85     // threshold - lowered so fireflies bloom even through glass
 );
 composer.addPass(bloomPass);
-// Camera controls
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.minDistance = 5;
-controls.maxDistance = 50;
+// Camera controls (Pointer Lock for FPS-style look)
+const controls = new PointerLockControls(camera, renderer.domElement);
+scene.add(controls.getObject());
 
 // ==================== LIGHTING ====================
 // Dim ambient for night-time atmosphere
@@ -112,7 +109,6 @@ function phongToStandard(mat) {
         transparent: mat.transparent,
         opacity: mat.opacity,
         side: mat.side,
-        // You can tune these for rocks:
         metalness: 0.0,
         roughness: 0.9
     });
@@ -762,9 +758,23 @@ let pokePosition = null;
 let pokeTime = 0;
 const POKE_DURATION = 1.0; // seconds
 
+function handleCanvasClick(event) {
+    if (!controls.isLocked) {
+        controls.lock();
+        return;
+    }
+    onMouseClick(event);
+}
+
 function onMouseClick(event) {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    if (controls.isLocked) {
+        mouse.set(0, 0); // center of screen when pointer is locked
+    } else if (event) {
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    } else {
+        mouse.set(0, 0);
+    }
     
     raycaster.setFromCamera(mouse, camera);
 
@@ -879,45 +889,25 @@ function onKeyUp(event) {
 
 function updateCameraMovement(deltaTime) {
     const moveDistance = CAMERA_MOVE_SPEED * deltaTime;
-    
-    // Get camera's forward and right vectors (ignoring Y for horizontal movement)
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    forward.normalize();
-    
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-    
-    // Calculate movement direction
-    const movement = new THREE.Vector3();
-    
+    const controlledObject = controls.getObject();
+
     if (keysPressed.w) {
-        movement.add(forward);
+        controls.moveForward(moveDistance);
     }
     if (keysPressed.s) {
-        movement.sub(forward);
+        controls.moveForward(-moveDistance);
     }
     if (keysPressed.d) {
-        movement.add(right);
+        controls.moveRight(moveDistance);
     }
     if (keysPressed.a) {
-        movement.sub(right);
+        controls.moveRight(-moveDistance);
     }
-    if (keysPressed.ArrowUp) {
-        movement.y += 1;
+    if (keysPressed.q) {
+        controlledObject.position.y += moveDistance;
     }
-    if (keysPressed.ArrowDown) {
-        movement.y -= 1;
-    }
-    
-    // Apply movement
-    if (movement.length() > 0) {
-        movement.normalize().multiplyScalar(moveDistance);
-        camera.position.add(movement);
-        
-        // Update OrbitControls target to move with camera
-        controls.target.add(movement);
+    if (keysPressed.e) {
+        controlledObject.position.y -= moveDistance;
     }
 }
 
@@ -1002,9 +992,6 @@ function animate() {
     // Check for firefly collisions with camera
     checkFireflyCollisions();
     
-    // Update controls
-    controls.update();
-    
     // Update jar lid animation
     if (jarOpen && lidRotation < LID_OPEN_ANGLE) {
         lidRotation += deltaTime * 2; // 2 radians per second
@@ -1036,7 +1023,7 @@ function animate() {
 renderer.setAnimationLoop(animate);
 
 // ==================== EVENT LISTENERS ====================
-window.addEventListener('click', onMouseClick);
+renderer.domElement.addEventListener('click', handleCanvasClick);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 
@@ -1078,7 +1065,7 @@ function loadJarModel(path) {
 
 console.log('Fireflies simulation initialized!');
 console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
-console.log('Controls: Mouse to orbit camera, Click to poke, Spacebar to open jar, R to reset');
+console.log('Controls: Click canvas to lock pointer, move mouse to look, click while locked to poke, Spacebar to open jar, R to reset, Esc to unlock pointer');
 console.log('Movement: W/A/S/D to move camera, T to go up, B to go down');
 console.log('Catch fireflies by moving the camera close to them!');
 
