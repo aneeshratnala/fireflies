@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 // ==================== SCENE SETUP ====================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a1a); // Dark blue background
+scene.background = new THREE.Color(0x050510); // Darker background for better glow contrast
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 5, 15);
@@ -14,9 +17,24 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ReinhardToneMapping;
+renderer.toneMappingExposure = 1.5;
 document.body.appendChild(renderer.domElement);
 // Use correct output encoding for colors
 renderer.outputEncoding = THREE.sRGBEncoding;
+
+// ==================== POST-PROCESSING (BLOOM) ====================
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    1.5,    // Bloom strength
+    0.4,    // Radius
+    0.2     // Threshold - lower means more things bloom
+);
+composer.addPass(bloomPass);
 
 // Camera controls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -26,10 +44,12 @@ controls.minDistance = 5;
 controls.maxDistance = 50;
 
 // ==================== LIGHTING ====================
-const ambientLight = new THREE.AmbientLight(0x404040, 0.2);
+// Dim ambient for night-time atmosphere
+const ambientLight = new THREE.AmbientLight(0x101020, 0.3);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+// Moonlight - very dim directional light
+const directionalLight = new THREE.DirectionalLight(0x4466aa, 0.2);
 directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
@@ -135,6 +155,22 @@ const FIREFLY_COUNT = 100;
 const fireflies = [];
 const fireflyVelocities = [];
 const fireflyPositions = [];
+const fireflyMaterials = []; // Individual materials for each firefly
+
+// Kuramoto model parameters for synchronization
+const KURAMOTO_CONFIG = {
+    couplingStrength: 2.0,     // K - how strongly fireflies influence each other
+    couplingRadius: 2.5,       // Only couple with nearby fireflies (local coupling)
+    baseFrequency: 1.5,        // Base angular frequency (radians per second) - slower for more visible pulses
+    frequencyVariance: 0.3,    // Variance in natural frequencies
+    brightnessThreshold: -0.3, // sin(phase) threshold for "on" state (gives ~60% on time)
+    minBrightness: 0.1,        // Minimum glow when "off" (slightly visible)
+    maxBrightness: 2.0         // Maximum glow when "on" (brighter for bloom effect)
+};
+
+// Kuramoto state for each firefly
+const fireflyPhases = [];      // Current phase (0 to 2π)
+const fireflyFrequencies = []; // Natural frequency of each firefly
 
 // Boids parameters
 const BOIDS_CONFIG = {
@@ -151,25 +187,84 @@ const BOIDS_CONFIG = {
     jarCenter: new THREE.Vector3(0, 0, 0)
 };
 
-// Create firefly geometry and material
-const fireflyGeometry = new THREE.SphereGeometry(0.05, 8, 8);
-const fireflyMaterial = new THREE.MeshPhongMaterial({
-    color: 0xffff00,
-    emissive: 0xffff00,
-    emissiveIntensity: 1.0,
-    shininess: 100
-});
+// Create firefly geometry (smaller core)
+const fireflyGeometry = new THREE.SphereGeometry(0.03, 8, 8);
+
+// Create glow sprite texture procedurally
+function createGlowTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    
+    // Create radial gradient for soft glow
+    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255, 255, 200, 1)');
+    gradient.addColorStop(0.2, 'rgba(255, 240, 100, 0.8)');
+    gradient.addColorStop(0.4, 'rgba(200, 255, 100, 0.4)');
+    gradient.addColorStop(0.7, 'rgba(100, 200, 50, 0.1)');
+    gradient.addColorStop(1, 'rgba(0, 100, 0, 0)');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 64, 64);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+}
+
+const glowTexture = createGlowTexture();
+
+// Arrays for glow sprites and point lights
+const fireflyGlowSprites = [];
+const fireflyPointLights = [];
+const LIGHTS_COUNT = 15; // Only add point lights to some fireflies for performance
 
 // initialize fireflies inside the jar
 for (let i = 0; i < FIREFLY_COUNT; i++) {
-    const firefly = new THREE.Mesh(fireflyGeometry, fireflyMaterial);
+    // Create individual material for each firefly so they can have different brightness
+    const material = new THREE.MeshBasicMaterial({
+        color: 0xffffaa,
+        transparent: true,
+        opacity: 1.0
+    });
+    fireflyMaterials.push(material);
+    
+    // Create firefly group to hold core + glow
+    const fireflyGroup = new THREE.Group();
+    
+    // Core (small bright center)
+    const core = new THREE.Mesh(fireflyGeometry, material);
+    fireflyGroup.add(core);
+    
+    // Glow sprite (additive blending for light emission effect)
+    const glowMaterial = new THREE.SpriteMaterial({
+        map: glowTexture,
+        color: 0xccff66,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 1.0
+    });
+    const glowSprite = new THREE.Sprite(glowMaterial);
+    glowSprite.scale.set(0.5, 0.5, 1);
+    fireflyGroup.add(glowSprite);
+    fireflyGlowSprites.push(glowSprite);
+    
+    // Add point light to some fireflies for actual scene illumination
+    if (i < LIGHTS_COUNT) {
+        const pointLight = new THREE.PointLight(0xccff66, 0.3, 2.0, 2);
+        fireflyGroup.add(pointLight);
+        fireflyPointLights.push(pointLight);
+    } else {
+        fireflyPointLights.push(null);
+    }
     
     // random position inside jar (cylinder)
     const angle = Math.random() * Math.PI * 2;
     const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
     const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
     
-    firefly.position.set(
+    fireflyGroup.position.set(
         Math.cos(angle) * radius,
         height,
         Math.sin(angle) * radius
@@ -182,11 +277,20 @@ for (let i = 0; i < FIREFLY_COUNT; i++) {
         (Math.random() - 0.5) * 0.05
     );
     
-    fireflies.push(firefly);
-    fireflyVelocities.push(velocity);
-    fireflyPositions.push(firefly.position.clone());
+    // Initialize Kuramoto state
+    // Random initial phase (spread across the cycle)
+    fireflyPhases.push(Math.random() * Math.PI * 2);
+    // Natural frequency with some variance (creates diversity)
+    fireflyFrequencies.push(
+        KURAMOTO_CONFIG.baseFrequency + 
+        (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance
+    );
     
-    scene.add(firefly);
+    fireflies.push(fireflyGroup);
+    fireflyVelocities.push(velocity);
+    fireflyPositions.push(fireflyGroup.position.clone());
+    
+    scene.add(fireflyGroup);
 }
 
 // ==================== BOIDS ALGORITHM ====================
@@ -438,6 +542,104 @@ function updateBoids() {
     }
 }
 
+// ==================== KURAMOTO MODEL ====================
+// Updates firefly phases and brightness based on the Kuramoto model
+// dθᵢ/dt = ωᵢ + (K/N_neighbors) * Σⱼ sin(θⱼ - θᵢ)
+function updateKuramoto(deltaTime) {
+    const K = KURAMOTO_CONFIG.couplingStrength;
+    const radius = KURAMOTO_CONFIG.couplingRadius;
+    
+    // Calculate phase derivatives for all fireflies
+    const phaseDerivatives = [];
+    
+    for (let i = 0; i < FIREFLY_COUNT; i++) {
+        const pos_i = fireflies[i].position;
+        const phase_i = fireflyPhases[i];
+        const omega_i = fireflyFrequencies[i];
+        
+        // Start with natural frequency
+        let dPhase = omega_i;
+        
+        // Sum coupling influence from nearby fireflies (local Kuramoto)
+        let neighborCount = 0;
+        let couplingSum = 0;
+        
+        for (let j = 0; j < FIREFLY_COUNT; j++) {
+            if (i === j) continue;
+            
+            const distance = pos_i.distanceTo(fireflies[j].position);
+            
+            // Only couple with nearby fireflies
+            if (distance < radius) {
+                const phase_j = fireflyPhases[j];
+                // Kuramoto coupling term: sin(θⱼ - θᵢ)
+                couplingSum += Math.sin(phase_j - phase_i);
+                neighborCount++;
+            }
+        }
+        
+        // Add coupling influence (normalized by neighbor count)
+        if (neighborCount > 0) {
+            dPhase += (K / neighborCount) * couplingSum;
+        }
+        
+        phaseDerivatives.push(dPhase);
+    }
+    
+    // Update phases and brightness
+    for (let i = 0; i < FIREFLY_COUNT; i++) {
+        // Update phase (Euler integration)
+        fireflyPhases[i] += phaseDerivatives[i] * deltaTime;
+        
+        // Keep phase in [0, 2π]
+        while (fireflyPhases[i] > Math.PI * 2) {
+            fireflyPhases[i] -= Math.PI * 2;
+        }
+        while (fireflyPhases[i] < 0) {
+            fireflyPhases[i] += Math.PI * 2;
+        }
+        
+        // Calculate brightness based on phase
+        // Using sin(phase) with a threshold to ensure ~50%+ are on
+        const sinPhase = Math.sin(fireflyPhases[i]);
+        
+        let brightness;
+        if (sinPhase > KURAMOTO_CONFIG.brightnessThreshold) {
+            // Firefly is "on" - map from threshold to 1 -> minBrightness to maxBrightness
+            const normalized = (sinPhase - KURAMOTO_CONFIG.brightnessThreshold) / 
+                             (1 - KURAMOTO_CONFIG.brightnessThreshold);
+            brightness = KURAMOTO_CONFIG.minBrightness + 
+                        normalized * (KURAMOTO_CONFIG.maxBrightness - KURAMOTO_CONFIG.minBrightness);
+        } else {
+            // Firefly is "off" - very dim glow
+            brightness = KURAMOTO_CONFIG.minBrightness;
+        }
+        
+        // Update core material opacity
+        fireflyMaterials[i].opacity = brightness;
+        
+        // Update glow sprite
+        const glowSprite = fireflyGlowSprites[i];
+        glowSprite.material.opacity = brightness;
+        // Scale glow based on brightness for pulsing effect
+        const glowScale = 0.3 + brightness * 0.5;
+        glowSprite.scale.set(glowScale, glowScale, 1);
+        
+        // Update color - warm yellow-green when bright, dim green when off
+        const r = 0.6 + brightness * 0.4;
+        const g = 0.8 + brightness * 0.2;
+        const b = brightness * 0.3;
+        fireflyMaterials[i].color.setRGB(r, g, b);
+        glowSprite.material.color.setRGB(r, g, b * 0.5);
+        
+        // Update point light if this firefly has one
+        if (fireflyPointLights[i]) {
+            fireflyPointLights[i].intensity = brightness * 0.5;
+            fireflyPointLights[i].color.setRGB(r, g, b);
+        }
+    }
+}
+
 // ==================== MOUSE INTERACTION (POKE) ====================
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -532,6 +734,21 @@ function resetSimulation() {
             (Math.random() - 0.5) * 0.05,
             (Math.random() - 0.5) * 0.05
         );
+        
+        // Reset Kuramoto state - random phases for desynchronized start
+        fireflyPhases[i] = Math.random() * Math.PI * 2;
+        fireflyFrequencies[i] = KURAMOTO_CONFIG.baseFrequency + 
+            (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance;
+        
+        // Reset material and glow
+        fireflyMaterials[i].opacity = 1.0;
+        fireflyGlowSprites[i].material.opacity = 1.0;
+        fireflyGlowSprites[i].scale.set(0.5, 0.5, 1);
+        
+        // Reset point light if exists
+        if (fireflyPointLights[i]) {
+            fireflyPointLights[i].intensity = 0.3;
+        }
     }
 }
 
@@ -565,8 +782,11 @@ function animate() {
     // Update boids
     updateBoids();
     
-    // Render
-    renderer.render(scene, camera);
+    // Update Kuramoto model (firefly synchronization/flashing)
+    updateKuramoto(deltaTime);
+    
+    // Render with bloom post-processing
+    composer.render();
 }
 
 renderer.setAnimationLoop(animate);
@@ -579,6 +799,8 @@ window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+    bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ==================== OBJ LOADER SETUP (for future use) ====================
@@ -610,5 +832,6 @@ function loadJarModel(path) {
 */
 
 console.log('Fireflies simulation initialized!');
+console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
 console.log('Controls: Mouse to move camera, Click to poke, Spacebar to open jar, R to reset');
 
