@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 
 // Post-processing imports for bloom effect
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -148,6 +149,37 @@ ground.rotation.x = -Math.PI / 2;
 ground.position.y = -2;
 ground.receiveShadow = true;
 scene.add(ground);
+
+// ===================== rock ====================
+// import rock from obj file and mtl file
+const rockLoader = new MTLLoader();
+rockLoader.load(
+    'objs/rock/Rock1.mtl',
+    (materials) => {
+        materials.preload();
+        const objLoader = new OBJLoader();
+        objLoader.setMaterials(materials);
+        
+        // Load the rock model
+        objLoader.load(
+            'objs/rock/Rock1.obj',
+            (object) => {
+                object.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;                    }
+                });
+                object.position.set(-10, -2, 0);
+                object.scale.set(0.5, 0.5, 0.5);
+                scene.add(object);
+            },
+            undefined,
+            (error) => console.error('Error loading rock model:', error)
+        );
+    },
+    undefined,
+    (error) => console.error('Error loading rock materials:', error)
+);
 
 // ==================== MASON JAR ====================
 // For initial demo, using basic geometry. Can be replaced with OBJ model later
