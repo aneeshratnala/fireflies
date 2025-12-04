@@ -69,35 +69,6 @@ directionalLight.shadow.mapSize.width = 2048;
 directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
 
-// ==================== FIREFLY POINT LIGHTS (Lantern Effect) ====================
-// Pool of 5 point lights that follow the lowest fireflies for performance
-const FIREFLY_LIGHT_COUNT = 5;
-const fireflyLights = [];
-
-for (let i = 0; i < FIREFLY_LIGHT_COUNT; i++) {
-    const light = new THREE.PointLight(0xffdd44, 0.8, 8, 2);
-    // color: warm yellow, intensity: 0.8, distance: 8 units, decay: 2 (physically correct)
-    light.castShadow = false; // Shadows from many lights = expensive
-    scene.add(light);
-    fireflyLights.push(light);
-}
-
-// Function to update point lights to follow closest-to-ground fireflies
-function updateFireflyLights() {
-    // Sort fireflies by Y position (lowest first - closest to ground)
-    const sortedIndices = fireflyPositions
-        .map((pos, i) => ({ index: i, y: pos.y }))
-        .sort((a, b) => a.y - b.y)
-        .slice(0, FIREFLY_LIGHT_COUNT);
-    
-    // Assign lights to the lowest fireflies
-    for (let i = 0; i < FIREFLY_LIGHT_COUNT; i++) {
-        const fireflyIndex = sortedIndices[i].index;
-        const fireflyPos = fireflyPositions[fireflyIndex];
-        fireflyLights[i].position.copy(fireflyPos);
-    }
-}
-
 // ==================== GROUND ====================
 
 const groundGeometry = new THREE.PlaneGeometry(50, 50, 512, 512);
@@ -224,7 +195,7 @@ let lidRotation = 0;
 const LID_OPEN_ANGLE = Math.PI / 2; // 90 degrees
 
 // ==================== FIREFLIES (InstancedMesh for Performance) ====================
-const FIREFLY_COUNT = 100;  // Can now handle 1000+ fireflies at 60FPS!
+const FIREFLY_COUNT = 100;  // Number of fireflies in the simulation
 const fireflyPositions = [];  // Vector3 positions for each firefly
 const fireflyVelocities = []; // Vector3 velocities for each firefly
 
@@ -822,9 +793,6 @@ function animate() {
     
     // Update instanced mesh matrices from positions
     updateFireflyMatrices();
-    
-    // Update point lights to follow lowest fireflies
-    updateFireflyLights();
     
     // Render with bloom post-processing
     composer.render();
