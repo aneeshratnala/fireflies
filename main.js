@@ -222,7 +222,7 @@ let lidRotation = 0;
 const LID_OPEN_ANGLE = Math.PI / 2; // 90 degrees
 
 // ==================== FIREFLIES (InstancedMesh for Performance) ====================
-const FIREFLY_COUNT = 1000;  // Can now handle 1000+ fireflies at 60FPS!
+const FIREFLY_COUNT = 100;  // Number of fireflies in the simulation
 const fireflyPositions = [];  // Vector3 positions for each firefly
 const fireflyVelocities = []; // Vector3 velocities for each firefly
 
