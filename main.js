@@ -9,9 +9,13 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 
 // ==================== SCENE SETUP ====================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a1a); // Night sky with moonlight
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(
+  75,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
 camera.position.set(0, 5, 15);
 camera.lookAt(0, 0, 0);
 
@@ -20,25 +24,46 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
-// Use correct output encoding for colors
-renderer.outputEncoding = THREE.sRGBEncoding;
-// Enable tone mapping for better PBR results
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
 
-// load environment map for realistic reflections, pmrem for better quality
+// Color management
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.6; // <--- lower = darker HDRI (start around 0.6–0.8)
+
+// ==================== ENVIRONMENT / HDRI ====================
+
+// Create PMREM generator once
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+pmremGenerator.compileEquirectangularShader();
+
 const exrLoader = new EXRLoader();
-exrLoader.load('hdris/rogland_clear_night_2k.exr', (texture) => {
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-    const envMap = pmremGenerator.fromEquirectangular(texture).texture;
-    scene.environment = envMap;
-    scene.background = envMap;
-    texture.dispose();
-    pmremGenerator.dispose();
-}, undefined, (err) => {
+exrLoader.setDataType(THREE.FloatType);
+
+exrLoader.load(
+  'hdris/rogland_clear_night_2k.exr',
+  (texture) => {
+    // Use original EXR as background (visible HDRI)
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    scene.background = texture;
+
+    // Create prefiltered env map for PBR lighting
+    const envRT = pmremGenerator.fromEquirectangular(texture);
+    const envMap = envRT.texture;
+
+    scene.environment = envMap; // this makes the HDRI a light source
+
+    // Optional: tweak lighting strength per material later via envMapIntensity
+
+    // Clean up only the render target, keep `texture` for background
+    // envRT and pmremGenerator can be disposed once you don't need more env maps:
+    // envRT.dispose();
+    // pmremGenerator.dispose();
+  },
+  undefined,
+  (err) => {
     console.error('Failed to load environment map:', err);
-});
+  }
+);
 
 // ==================== POST-PROCESSING (BLOOM) ====================
 const composer = new EffectComposer(renderer);
@@ -68,7 +93,7 @@ const ambientLight = new THREE.AmbientLight(0x101020, 0.3);
 scene.add(ambientLight);
 
 // Moonlight - very dim directional light
-const directionalLight = new THREE.DirectionalLight(0x4466aa, 0.2);
+const directionalLight = new THREE.DirectionalLight(0xd3ddf0, 0.9);
 directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
@@ -76,6 +101,39 @@ directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
 
 // ===================== rock ====================
+// Helper: convert a Phong material (from MTL) to a Standard material
+function phongToStandard(mat) {
+    const std = new THREE.MeshStandardMaterial({
+        color: mat.color.clone ? mat.color.clone() : mat.color,  // base color
+        map: mat.map || null,
+        normalMap: mat.normalMap || null,
+        emissive: mat.emissive ? mat.emissive.clone() : new THREE.Color(0x000000),
+        emissiveMap: mat.emissiveMap || null,
+        transparent: mat.transparent,
+        opacity: mat.opacity,
+        side: mat.side,
+        // You can tune these for rocks:
+        metalness: 0.0,
+        roughness: 0.9
+    });
+
+    // Ensure color textures use sRGB
+    if (std.map) {
+        std.map.encoding = THREE.sRGBEncoding;
+        std.map.needsUpdate = true;
+    }
+    if (std.emissiveMap) {
+        std.emissiveMap.encoding = THREE.sRGBEncoding;
+        std.emissiveMap.needsUpdate = true;
+    }
+
+    // Hook into environment lighting if you want
+    std.envMap = scene.environment || null;
+    std.envMapIntensity = 1.0;  // tweak as needed
+
+    return std;
+}
+
 // import rock from obj file and mtl file
 const rockLoader = new MTLLoader();
 rockLoader.load(
@@ -85,15 +143,23 @@ rockLoader.load(
         const objLoader = new OBJLoader();
         objLoader.setMaterials(materials);
         
-        // Load the rock model
         objLoader.load(
             'objs/rock/Rock1.obj',
             (object) => {
                 object.traverse((child) => {
                     if (child.isMesh) {
                         child.castShadow = true;
-                        child.receiveShadow = true;                    }
+                        child.receiveShadow = true; 
+
+                        // child.material may be a single material or an array
+                        if (Array.isArray(child.material)) {
+                            child.material = child.material.map((m) => phongToStandard(m));
+                        } else {
+                            child.material = phongToStandard(child.material);
+                        }
+                    }
                 });
+
                 object.position.set(-10, -2, 0);
                 object.scale.set(0.5, 0.5, 0.5);
                 scene.add(object);
@@ -105,7 +171,6 @@ rockLoader.load(
     undefined,
     (error) => console.error('Error loading rock materials:', error)
 );
-
 
 // ==================== GROUND ====================
 
