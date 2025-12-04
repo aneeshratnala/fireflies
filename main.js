@@ -822,8 +822,8 @@ const keysPressed = {
     a: false,
     s: false,
     d: false,
-    t: false,
-    b: false
+    ArrowUp: false,
+    ArrowDown: false
 };
 
 const CAMERA_MOVE_SPEED = 10; // Units per second
@@ -842,6 +842,12 @@ function updateBugCounter() {
 function onKeyDown(event) {
     const key = event.key.toLowerCase();
     
+    // Handle arrow keys (they don't get lowercased)
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        keysPressed[event.key] = true;
+        return;
+    }
+    
     // Handle movement keys
     if (key in keysPressed) {
         keysPressed[key] = true;
@@ -859,6 +865,12 @@ function onKeyDown(event) {
 }
 
 function onKeyUp(event) {
+    // Handle arrow keys (they don't get lowercased)
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        keysPressed[event.key] = false;
+        return;
+    }
+    
     const key = event.key.toLowerCase();
     if (key in keysPressed) {
         keysPressed[key] = false;
@@ -892,10 +904,10 @@ function updateCameraMovement(deltaTime) {
     if (keysPressed.a) {
         movement.sub(right);
     }
-    if (keysPressed.t) {
+    if (keysPressed.ArrowUp) {
         movement.y += 1;
     }
-    if (keysPressed.b) {
+    if (keysPressed.ArrowDown) {
         movement.y -= 1;
     }
     
