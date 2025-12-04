@@ -10,7 +10,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 
 // ==================== SCENE SETUP ====================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a1a); // Dark blue background
+scene.background = new THREE.Color(0x0a0a1a); // Night sky with moonlight
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 5, 15);
@@ -37,7 +37,7 @@ composer.addPass(renderPass);
 // UnrealBloomPass creates the glowing effect
 const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    2.0,    // strength - intensity of the bloom (increased)
+    1.5,    // strength - intensity of the bloom (increased)
     0.5,    // radius - how far the bloom spreads
     0.85     // threshold - lowered so fireflies bloom even through glass
 );
@@ -57,10 +57,12 @@ const originalControlsTarget = new THREE.Vector3(0, 0, 0);
 controls.maxDistance = 50;
 
 // ==================== LIGHTING ====================
-const ambientLight = new THREE.AmbientLight(0x404040, 0.2);
+// Ambient light for full moon night - soft blue fill
+const ambientLight = new THREE.AmbientLight(0x334466, 0.4);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+// Bright moonlight - silver-blue, strong enough to see the ground
+const directionalLight = new THREE.DirectionalLight(0x8899bb, 0.6);
 directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
@@ -222,7 +224,7 @@ let lidRotation = 0;
 const LID_OPEN_ANGLE = Math.PI / 2; // 90 degrees
 
 // ==================== FIREFLIES (InstancedMesh for Performance) ====================
-const FIREFLY_COUNT = 1000;  // Can now handle 1000+ fireflies at 60FPS!
+const FIREFLY_COUNT = 100;  // Can now handle 1000+ fireflies at 60FPS!
 const fireflyPositions = [];  // Vector3 positions for each firefly
 const fireflyVelocities = []; // Vector3 velocities for each firefly
 
