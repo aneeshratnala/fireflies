@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 
 // Post-processing imports for bloom effect
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -26,6 +27,20 @@ renderer.outputEncoding = THREE.sRGBEncoding;
 // Enable tone mapping for better PBR results
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
+
+// load environment map for realistic reflections, pmrem for better quality
+const exrLoader = new EXRLoader();
+exrLoader.load('hdris/rogland_clear_night_2k.exr', (texture) => {
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+    scene.environment = envMap;
+    scene.background = envMap;
+    texture.dispose();
+    pmremGenerator.dispose();
+}, undefined, (err) => {
+    console.error('Failed to load environment map:', err);
+});
 
 // ==================== POST-PROCESSING (BLOOM) ====================
 const composer = new EffectComposer(renderer);
