@@ -421,7 +421,7 @@ function separation(fireflyIndex, radius = BOIDS_CONFIG.separationDistance) {
     let count = 0;
     const pos = fireflies[fireflyIndex].position;
     
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    for (let i = 0; i < fireflies.length; i++) {
         if (i === fireflyIndex) continue;
         
         const distance = pos.distanceTo(fireflies[i].position);
@@ -452,7 +452,7 @@ function alignment(fireflyIndex) {
     let count = 0;
     const pos = fireflies[fireflyIndex].position;
     
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    for (let i = 0; i < fireflies.length; i++) {
         if (i === fireflyIndex) continue;
         
         const distance = pos.distanceTo(fireflies[i].position);
@@ -478,7 +478,7 @@ function cohesion(fireflyIndex) {
     let count = 0;
     const pos = fireflies[fireflyIndex].position;
     
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    for (let i = 0; i < fireflies.length; i++) {
         if (i === fireflyIndex) continue;
         
         const distance = pos.distanceTo(fireflies[i].position);
@@ -587,7 +587,7 @@ function updateBoids() {
     const REPULSION_RADIUS = 3.5;
     const MAX_BURST_MULTIPLIER = 8.0;
 
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    for (let i = 0; i < fireflies.length; i++) {
         // === 1. DETERMINE FLOCKING STATE ===
         
         // SEPARATION RADIUS
@@ -667,7 +667,7 @@ function updateKuramoto(deltaTime) {
     // Calculate phase derivatives for all fireflies
     const phaseDerivatives = [];
     
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    for (let i = 0; i < fireflies.length; i++) {
         const pos_i = fireflies[i].position;
         const phase_i = fireflyPhases[i];
         const omega_i = fireflyFrequencies[i];
@@ -679,7 +679,7 @@ function updateKuramoto(deltaTime) {
         let neighborCount = 0;
         let couplingSum = 0;
         
-        for (let j = 0; j < FIREFLY_COUNT; j++) {
+        for (let j = 0; j < fireflies.length; j++) {
             if (i === j) continue;
             
             const distance = pos_i.distanceTo(fireflies[j].position);
@@ -702,7 +702,7 @@ function updateKuramoto(deltaTime) {
     }
     
     // Update phases and brightness
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    for (let i = 0; i < fireflies.length; i++) {
         // Update phase (Euler integration)
         fireflyPhases[i] += phaseDerivatives[i] * deltaTime;
         
@@ -816,8 +816,39 @@ function updatePokeEffect(deltaTime) {
 }
 
 // ==================== KEYBOARD INTERACTIONS ====================
-function onKeyPress(event) {
-    switch (event.key.toLowerCase()) {
+// Track which keys are currently pressed for smooth movement
+const keysPressed = {
+    w: false,
+    a: false,
+    s: false,
+    d: false,
+    t: false,
+    b: false
+};
+
+const CAMERA_MOVE_SPEED = 10; // Units per second
+const FIREFLY_CATCH_RADIUS = 0.5; // Distance at which camera catches fireflies
+
+// Bug counter
+let bugsCaught = 0;
+const bugCounterElement = document.getElementById('bugs-killed');
+
+function updateBugCounter() {
+    if (bugCounterElement) {
+        bugCounterElement.textContent = bugsCaught;
+    }
+}
+
+function onKeyDown(event) {
+    const key = event.key.toLowerCase();
+    
+    // Handle movement keys
+    if (key in keysPressed) {
+        keysPressed[key] = true;
+    }
+    
+    // Handle toggle keys
+    switch (key) {
         case ' ': // Spacebar - open/close jar
             jarOpen = !jarOpen;
             break;
@@ -827,13 +858,93 @@ function onKeyPress(event) {
     }
 }
 
+function onKeyUp(event) {
+    const key = event.key.toLowerCase();
+    if (key in keysPressed) {
+        keysPressed[key] = false;
+    }
+}
+
+function updateCameraMovement(deltaTime) {
+    const moveDistance = CAMERA_MOVE_SPEED * deltaTime;
+    
+    // Get camera's forward and right vectors (ignoring Y for horizontal movement)
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    
+    // Calculate movement direction
+    const movement = new THREE.Vector3();
+    
+    if (keysPressed.w) {
+        movement.add(forward);
+    }
+    if (keysPressed.s) {
+        movement.sub(forward);
+    }
+    if (keysPressed.d) {
+        movement.add(right);
+    }
+    if (keysPressed.a) {
+        movement.sub(right);
+    }
+    if (keysPressed.t) {
+        movement.y += 1;
+    }
+    if (keysPressed.b) {
+        movement.y -= 1;
+    }
+    
+    // Apply movement
+    if (movement.length() > 0) {
+        movement.normalize().multiplyScalar(moveDistance);
+        camera.position.add(movement);
+        
+        // Update OrbitControls target to move with camera
+        controls.target.add(movement);
+    }
+}
+
+function checkFireflyCollisions() {
+    const cameraPos = camera.position;
+    
+    // Iterate backwards since we're removing elements
+    for (let i = fireflies.length - 1; i >= 0; i--) {
+        const fireflyPos = fireflies[i].position;
+        const distance = cameraPos.distanceTo(fireflyPos);
+        
+        if (distance < FIREFLY_CATCH_RADIUS) {
+            // Remove the firefly from the scene
+            scene.remove(fireflies[i]);
+            
+            // Remove from all tracking arrays
+            fireflies.splice(i, 1);
+            fireflyVelocities.splice(i, 1);
+            fireflyPositions.splice(i, 1);
+            fireflyMaterials.splice(i, 1);
+            fireflyPhases.splice(i, 1);
+            fireflyFrequencies.splice(i, 1);
+            fireflyGlowSprites.splice(i, 1);
+            fireflyPointLights.splice(i, 1);
+            
+            // Increment bug counter
+            bugsCaught++;
+            updateBugCounter();
+        }
+    }
+}
+
 function resetSimulation() {
     jarOpen = false;
     lidRotation = 0;
     jarLid.rotation.x = 0;
     
-    // Reset fireflies to random positions inside jar
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
+    // Reset remaining fireflies to random positions inside jar
+    for (let i = 0; i < fireflies.length; i++) {
         const angle = Math.random() * Math.PI * 2;
         const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
         const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
@@ -873,6 +984,12 @@ const clock = new THREE.Clock();
 function animate() {
     const deltaTime = clock.getDelta();
     
+    // Update camera movement (WASD + T/B)
+    updateCameraMovement(deltaTime);
+    
+    // Check for firefly collisions with camera
+    checkFireflyCollisions();
+    
     // Update controls
     controls.update();
     
@@ -908,7 +1025,8 @@ renderer.setAnimationLoop(animate);
 
 // ==================== EVENT LISTENERS ====================
 window.addEventListener('click', onMouseClick);
-window.addEventListener('keydown', onKeyPress);
+window.addEventListener('keydown', onKeyDown);
+window.addEventListener('keyup', onKeyUp);
 
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -948,5 +1066,7 @@ function loadJarModel(path) {
 
 console.log('Fireflies simulation initialized!');
 console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
-console.log('Controls: Mouse to move camera, Click to poke, Spacebar to open jar, R to reset');
+console.log('Controls: Mouse to orbit camera, Click to poke, Spacebar to open jar, R to reset');
+console.log('Movement: W/A/S/D to move camera, T to go up, B to go down');
+console.log('Catch fireflies by moving the camera close to them!');
 

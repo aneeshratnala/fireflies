@@ -20,15 +20,41 @@
 				font-size: 14px;
 				z-index: 100;
 			}
+			#bug-counter {
+				position: absolute;
+				top: 10px;
+				right: 10px;
+				color: #ccff66;
+				background: rgba(0, 0, 0, 0.7);
+				padding: 15px 20px;
+				border-radius: 10px;
+				font-size: 18px;
+				z-index: 100;
+				text-align: center;
+				border: 2px solid #ccff66;
+				text-shadow: 0 0 10px #ccff66;
+			}
+			#bug-counter .count {
+				font-size: 36px;
+				font-weight: bold;
+				display: block;
+				margin-top: 5px;
+			}
 		</style>
 	</head>
 	<body>
 		<div id="info">
 			<h3>Fireflies - Controls</h3>
 			<p>Mouse: Move camera</p>
+			<p>W/A/S/D: Move around</p>
+			<p>T/B: Move up/down</p>
 			<p>Click: Poke the swarm</p>
 			<p>Spacebar: Open jar</p>
 			<p>R: Reset simulation</p>
+		</div>
+		<div id="bug-counter">
+			🪲 Bugs Caught
+			<span class="count" id="bugs-killed">0</span>
 		</div>
 		<script type="module" src="/main.js"></script>
 	</body>
