@@ -178,7 +178,8 @@ const groundGeometry = new THREE.PlaneGeometry(50, 50, 512, 512);
 const groundMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.65,
-    metalness: 0.0
+    metalness: 0.0,
+    side: THREE.DoubleSide // Make both sides visible (uncull bottom)
 });
 
 const loader = new THREE.TextureLoader();
