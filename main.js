@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -83,6 +84,136 @@ composer.addPass(bloomPass);
 // Camera controls (Pointer Lock for FPS-style look)
 const controls = new PointerLockControls(camera, renderer.domElement);
 scene.add(controls.object);
+
+// ==================== TONGUE ====================
+let tongueProgress = 0; // 0 = hidden, 1 = fully extended
+const TONGUE_EXTEND_SPEED = 8.0; // How fast tongue extends (quick snap out)
+const TONGUE_RETRACT_SPEED = 4.0; // How fast tongue retracts
+const TONGUE_HOLD_TIME = 0.15; // Time to hold tongue at full extension
+let tongueHoldTimer = 0;
+let tongueState = 'hidden'; // 'hidden', 'extending', 'holding', 'retracting'
+
+// Create a smooth procedural tongue shape
+const tongueGroup = new THREE.Group();
+
+// Create tongue using a more organic shape - LatheGeometry for smooth rounded tongue
+const tonguePoints = [];
+// Create a tongue profile (side view) - starts thick, tapers to rounded tip
+tonguePoints.push(new THREE.Vector2(0, 0));        // tip (center)
+tonguePoints.push(new THREE.Vector2(0.06, 0.05));  // tip curve
+tonguePoints.push(new THREE.Vector2(0.10, 0.15));  // middle
+tonguePoints.push(new THREE.Vector2(0.12, 0.35));  // wider part
+tonguePoints.push(new THREE.Vector2(0.10, 0.55));  // base starts
+tonguePoints.push(new THREE.Vector2(0.08, 0.65));  // base
+tonguePoints.push(new THREE.Vector2(0, 0.70));     // back center
+
+const tongueGeometry = new THREE.LatheGeometry(tonguePoints, 32);
+const tongueMaterial = new THREE.MeshStandardMaterial({
+    color: 0xff5566,      // Pink-red tongue color
+    roughness: 0.6,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+});
+
+const tongueMesh = new THREE.Mesh(tongueGeometry, tongueMaterial);
+tongueMesh.rotation.x = -Math.PI / 2; // Point forward
+tongueMesh.position.z = 0;
+tongueGroup.add(tongueMesh);
+
+// Add a slight highlight/wet look with a second layer
+const tongueHighlightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xff7788,
+    roughness: 0.3,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.FrontSide
+});
+const tongueHighlight = new THREE.Mesh(tongueGeometry.clone(), tongueHighlightMaterial);
+tongueHighlight.rotation.x = -Math.PI / 2;
+tongueHighlight.scale.set(1.02, 1.02, 1.02); // Slightly larger
+tongueGroup.add(tongueHighlight);
+
+tongueGroup.visible = false;
+camera.add(tongueGroup);
+
+console.log('👅 Procedural tongue created and added to camera');
+
+// Function to trigger tongue animation
+function triggerTongueAnimation() {
+    if (tongueState === 'hidden') {
+        console.log('🦎 Tongue animation triggered!');
+        tongueState = 'extending';
+        tongueProgress = 0;
+        tongueGroup.visible = true;
+    }
+}
+
+// Function to update tongue animation
+function updateTongueAnimation(deltaTime) {
+    if (tongueState === 'hidden') return;
+    
+    switch (tongueState) {
+        case 'extending':
+            tongueProgress += TONGUE_EXTEND_SPEED * deltaTime;
+            if (tongueProgress >= 1) {
+                tongueProgress = 1;
+                tongueState = 'holding';
+                tongueHoldTimer = 0;
+            }
+            break;
+            
+        case 'holding':
+            tongueHoldTimer += deltaTime;
+            if (tongueHoldTimer >= TONGUE_HOLD_TIME) {
+                tongueState = 'retracting';
+            }
+            break;
+            
+        case 'retracting':
+            tongueProgress -= TONGUE_RETRACT_SPEED * deltaTime;
+            if (tongueProgress <= 0) {
+                tongueProgress = 0;
+                tongueState = 'hidden';
+                tongueGroup.visible = false;
+            }
+            break;
+    }
+    
+    // Ease function for smooth animation
+    const easedProgress = tongueState === 'extending' 
+        ? easeOutBack(tongueProgress) 
+        : easeInQuad(tongueProgress);
+    
+    // Position tongue in camera space (attached to camera, so moves with it):
+    // X: 0 (centered horizontally)
+    // Y: slightly below center (like coming from mouth)
+    // Z: negative = in front of camera
+    const extendDistance = 0.5 * easedProgress; // How far tongue extends forward
+    
+    // Scale the tongue - stretches forward as it extends
+    const baseScale = 0.6;
+    tongueGroup.scale.set(
+        baseScale,
+        baseScale * (1 + 0.5 * easedProgress), // Stretch longer as it extends
+        baseScale
+    );
+    
+    // Position: centered, slightly below eye level, extends forward
+    tongueGroup.position.set(0, -0.15, -0.4 - extendDistance);
+    tongueGroup.rotation.set(0, 0, 0);
+}
+
+// Easing functions for smooth animation
+function easeOutBack(t) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+function easeInQuad(t) {
+    return t * t;
+}
 
 // ==================== LIGHTING ====================
 // Dim ambient for night-time atmosphere
@@ -915,6 +1046,7 @@ function updateCameraMovement(deltaTime) {
 
 function checkFireflyCollisions() {
     const cameraPos = camera.position;
+    let caughtAny = false;
     
     // Iterate backwards since we're removing elements
     for (let i = fireflies.length - 1; i >= 0; i--) {
@@ -938,7 +1070,15 @@ function checkFireflyCollisions() {
             // Increment bug counter
             bugsCaught++;
             updateBugCounter();
+            
+            // Mark that we caught a firefly
+            caughtAny = true;
         }
+    }
+    
+    // Trigger tongue animation if we caught any fireflies
+    if (caughtAny) {
+        triggerTongueAnimation();
     }
 }
 
@@ -947,39 +1087,98 @@ function resetSimulation() {
     lidRotation = 0;
     jarLid.rotation.x = 0;
     
-    // Reset remaining fireflies to random positions inside jar
-    for (let i = 0; i < fireflies.length; i++) {
+    // Reset bug counter
+    bugsCaught = 0;
+    updateBugCounter();
+    
+    // Remove all existing fireflies from scene
+    for (let i = fireflies.length - 1; i >= 0; i--) {
+        scene.remove(fireflies[i]);
+    }
+    
+    // Clear all firefly arrays
+    fireflies.length = 0;
+    fireflyVelocities.length = 0;
+    fireflyPositions.length = 0;
+    fireflyMaterials.length = 0;
+    fireflyPhases.length = 0;
+    fireflyFrequencies.length = 0;
+    fireflyGlowSprites.length = 0;
+    fireflyPointLights.length = 0;
+    
+    // Recreate all fireflies
+    for (let i = 0; i < FIREFLY_COUNT; i++) {
+        // Create individual material for each firefly
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffaa,
+            transparent: true,
+            opacity: 1.0
+        });
+        fireflyMaterials.push(material);
+        
+        // Create firefly group to hold core + glow
+        const fireflyGroup = new THREE.Group();
+        
+        // Core (small bright center)
+        const core = new THREE.Mesh(fireflyGeometry, material);
+        fireflyGroup.add(core);
+        
+        // Glow sprite
+        const glowMaterial = new THREE.SpriteMaterial({
+            map: glowTexture,
+            color: 0xccff66,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 1.0
+        });
+        const glowSprite = new THREE.Sprite(glowMaterial);
+        glowSprite.scale.set(0.5, 0.5, 1);
+        fireflyGroup.add(glowSprite);
+        fireflyGlowSprites.push(glowSprite);
+        
+        // Add point light to some fireflies
+        if (i < LIGHTS_COUNT) {
+            const pointLight = new THREE.PointLight(0xccff66, 0.3, 2.0, 2);
+            fireflyGroup.add(pointLight);
+            fireflyPointLights.push(pointLight);
+        } else {
+            fireflyPointLights.push(null);
+        }
+        
+        // Random position inside jar
         const angle = Math.random() * Math.PI * 2;
         const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
         const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
         
-        fireflies[i].position.set(
+        fireflyGroup.position.set(
             Math.cos(angle) * radius,
             height,
             Math.sin(angle) * radius
         );
         
-        fireflyVelocities[i].set(
+        // Random initial velocity
+        const velocity = new THREE.Vector3(
             (Math.random() - 0.5) * 0.05,
             (Math.random() - 0.5) * 0.05,
             (Math.random() - 0.5) * 0.05
         );
         
-        // Reset Kuramoto state - random phases for desynchronized start
-        fireflyPhases[i] = Math.random() * Math.PI * 2;
-        fireflyFrequencies[i] = KURAMOTO_CONFIG.baseFrequency + 
-            (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance;
+        // Initialize Kuramoto state
+        fireflyPhases.push(Math.random() * Math.PI * 2);
+        fireflyFrequencies.push(
+            KURAMOTO_CONFIG.baseFrequency + 
+            (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance
+        );
         
-        // Reset material and glow
-        fireflyMaterials[i].opacity = 1.0;
-        fireflyGlowSprites[i].material.opacity = 1.0;
-        fireflyGlowSprites[i].scale.set(0.5, 0.5, 1);
+        fireflies.push(fireflyGroup);
+        fireflyVelocities.push(velocity);
+        fireflyPositions.push(fireflyGroup.position.clone());
         
-        // Reset point light if exists
-        if (fireflyPointLights[i]) {
-            fireflyPointLights[i].intensity = 0.3;
-        }
+        scene.add(fireflyGroup);
     }
+    
+    console.log('🔄 Simulation reset! All', FIREFLY_COUNT, 'fireflies restored.');
 }
 
 // ==================== ANIMATION LOOP ====================
@@ -993,6 +1192,9 @@ function animate() {
     
     // Check for firefly collisions with camera
     checkFireflyCollisions();
+    
+    // Update tongue animation
+    updateTongueAnimation(deltaTime);
     
     // Update jar lid animation
     if (jarOpen && lidRotation < LID_OPEN_ANGLE) {
