@@ -3,8 +3,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
-
-// Post-processing imports for bloom effect
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -57,32 +55,57 @@ const bloomPass = new UnrealBloomPass(
     0.85     // threshold - lowered so fireflies bloom even through glass
 );
 composer.addPass(bloomPass);
-
 // Camera controls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.minDistance = 5;
-
-// Firefly camera mode state
-let fireflyCameraMode = false;
-let trackedFireflyIndex = -1;
-const originalCameraPosition = new THREE.Vector3(0, 5, 15);
-const originalControlsTarget = new THREE.Vector3(0, 0, 0);
 controls.maxDistance = 50;
 
 // ==================== LIGHTING ====================
-// Ambient light for full moon night - soft blue fill
-const ambientLight = new THREE.AmbientLight(0x334466, 0.4);
+// Dim ambient for night-time atmosphere
+const ambientLight = new THREE.AmbientLight(0x101020, 0.3);
 scene.add(ambientLight);
 
-// Bright moonlight - silver-blue, strong enough to see the ground
-const directionalLight = new THREE.DirectionalLight(0x8899bb, 0.6);
+// Moonlight - very dim directional light
+const directionalLight = new THREE.DirectionalLight(0x4466aa, 0.2);
 directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
 directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
+
+// ===================== rock ====================
+// import rock from obj file and mtl file
+const rockLoader = new MTLLoader();
+rockLoader.load(
+    'objs/rock/Rock1.mtl',
+    (materials) => {
+        materials.preload();
+        const objLoader = new OBJLoader();
+        objLoader.setMaterials(materials);
+        
+        // Load the rock model
+        objLoader.load(
+            'objs/rock/Rock1.obj',
+            (object) => {
+                object.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;                    }
+                });
+                object.position.set(-10, -2, 0);
+                object.scale.set(0.5, 0.5, 0.5);
+                scene.add(object);
+            },
+            undefined,
+            (error) => console.error('Error loading rock model:', error)
+        );
+    },
+    undefined,
+    (error) => console.error('Error loading rock materials:', error)
+);
+
 
 // ==================== GROUND ====================
 
@@ -138,50 +161,17 @@ ground.position.y = -2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ===================== rock ====================
-// import rock from obj file and mtl file
-const rockLoader = new MTLLoader();
-rockLoader.load(
-    'objs/rock/Rock1.mtl',
-    (materials) => {
-        materials.preload();
-        const objLoader = new OBJLoader();
-        objLoader.setMaterials(materials);
-        
-        // Load the rock model
-        objLoader.load(
-            'objs/rock/Rock1.obj',
-            (object) => {
-                object.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;                    }
-                });
-                object.position.set(-10, -2, 0);
-                object.scale.set(0.5, 0.5, 0.5);
-                scene.add(object);
-            },
-            undefined,
-            (error) => console.error('Error loading rock model:', error)
-        );
-    },
-    undefined,
-    (error) => console.error('Error loading rock materials:', error)
-);
-
 // ==================== MASON JAR ====================
 // For initial demo, using basic geometry. Can be replaced with OBJ model later
 const jarGroup = new THREE.Group();
 
 // Jar body (cylinder)
 const jarGeometry = new THREE.CylinderGeometry(2, 2, 4, 32);
-const jarMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff,
-    transmission: 1.0,      // Allows light to pass through like real glass
-    roughness: 0.1,         // Low = clear glass, higher = frosted
-    thickness: 1.0,         // Volume-based refraction
-    ior: 1.5,               // Index of Refraction for glass
+const jarMaterial = new THREE.MeshPhongMaterial({
+    color: 0xf0f0f0,
     transparent: true,
+    opacity: 0.7,
+    shininess: 100,
     side: THREE.DoubleSide
 });
 const jarBody = new THREE.Mesh(jarGeometry, jarMaterial);
@@ -209,10 +199,27 @@ let jarOpen = false;
 let lidRotation = 0;
 const LID_OPEN_ANGLE = Math.PI / 2; // 90 degrees
 
-// ==================== FIREFLIES (InstancedMesh for Performance) ====================
-const FIREFLY_COUNT = 100;  // Number of fireflies in the simulation
-const fireflyPositions = [];  // Vector3 positions for each firefly
-const fireflyVelocities = []; // Vector3 velocities for each firefly
+// ==================== FIREFLIES ====================
+const FIREFLY_COUNT = 100;
+const fireflies = [];
+const fireflyVelocities = [];
+const fireflyPositions = [];
+const fireflyMaterials = []; // Individual materials for each firefly
+
+// Kuramoto model parameters for synchronization
+const KURAMOTO_CONFIG = {
+    couplingStrength: 2.0,     // K - how strongly fireflies influence each other
+    couplingRadius: 2.5,       // Only couple with nearby fireflies (local coupling)
+    baseFrequency: 1.5,        // Base angular frequency (radians per second) - slower for more visible pulses
+    frequencyVariance: 0.3,    // Variance in natural frequencies
+    brightnessThreshold: -0.3, // sin(phase) threshold for "on" state (gives ~60% on time)
+    minBrightness: 0.1,        // Minimum glow when "off" (slightly visible)
+    maxBrightness: 2.0         // Maximum glow when "on" (brighter for bloom effect)
+};
+
+// Kuramoto state for each firefly
+const fireflyPhases = [];      // Current phase (0 to 2π)
+const fireflyFrequencies = []; // Natural frequency of each firefly
 
 // Boids parameters
 const BOIDS_CONFIG = {
@@ -229,33 +236,84 @@ const BOIDS_CONFIG = {
     jarCenter: new THREE.Vector3(0, 0, 0)
 };
 
-// Create firefly geometry and material (shared by all instances)
-const fireflyGeometry = new THREE.SphereGeometry(0.05, 8, 8);
-const fireflyMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffff00,
-    emissive: 0xffff00,
-    emissiveIntensity: 5.0,  // Very high intensity to exceed bloom threshold even through glass
-    roughness: 0.2,
-    metalness: 0.0,
-    toneMapped: false        // Bypass tone mapping so bloom can catch the full brightness
-});
+// Create firefly geometry (smaller core)
+const fireflyGeometry = new THREE.SphereGeometry(0.03, 8, 8);
 
-// Create InstancedMesh - ONE draw call for ALL fireflies!
-const fireflyMesh = new THREE.InstancedMesh(fireflyGeometry, fireflyMaterial, FIREFLY_COUNT);
-fireflyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); // Optimize for frequent updates
-scene.add(fireflyMesh);
+// Create glow sprite texture procedurally
+function createGlowTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    
+    // Create radial gradient for soft glow
+    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255, 255, 200, 1)');
+    gradient.addColorStop(0.2, 'rgba(255, 240, 100, 0.8)');
+    gradient.addColorStop(0.4, 'rgba(200, 255, 100, 0.4)');
+    gradient.addColorStop(0.7, 'rgba(100, 200, 50, 0.1)');
+    gradient.addColorStop(1, 'rgba(0, 100, 0, 0)');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 64, 64);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+}
 
-// Temporary matrix for updates
-const tempMatrix = new THREE.Matrix4();
+const glowTexture = createGlowTexture();
 
-// Initialize firefly positions and velocities
+// Arrays for glow sprites and point lights
+const fireflyGlowSprites = [];
+const fireflyPointLights = [];
+const LIGHTS_COUNT = 15; // Only add point lights to some fireflies for performance
+
+// initialize fireflies inside the jar
 for (let i = 0; i < FIREFLY_COUNT; i++) {
-    // Random position inside jar (cylinder)
+    // Create individual material for each firefly so they can have different brightness
+    const material = new THREE.MeshBasicMaterial({
+        color: 0xffffaa,
+        transparent: true,
+        opacity: 1.0
+    });
+    fireflyMaterials.push(material);
+    
+    // Create firefly group to hold core + glow
+    const fireflyGroup = new THREE.Group();
+    
+    // Core (small bright center)
+    const core = new THREE.Mesh(fireflyGeometry, material);
+    fireflyGroup.add(core);
+    
+    // Glow sprite (additive blending for light emission effect)
+    const glowMaterial = new THREE.SpriteMaterial({
+        map: glowTexture,
+        color: 0xccff66,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 1.0
+    });
+    const glowSprite = new THREE.Sprite(glowMaterial);
+    glowSprite.scale.set(0.5, 0.5, 1);
+    fireflyGroup.add(glowSprite);
+    fireflyGlowSprites.push(glowSprite);
+    
+    // Add point light to some fireflies for actual scene illumination
+    if (i < LIGHTS_COUNT) {
+        const pointLight = new THREE.PointLight(0xccff66, 0.3, 2.0, 2);
+        fireflyGroup.add(pointLight);
+        fireflyPointLights.push(pointLight);
+    } else {
+        fireflyPointLights.push(null);
+    }
+    
+    // random position inside jar (cylinder)
     const angle = Math.random() * Math.PI * 2;
     const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
     const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
     
-    const position = new THREE.Vector3(
+    fireflyGroup.position.set(
         Math.cos(angle) * radius,
         height,
         Math.sin(angle) * radius
@@ -268,22 +326,20 @@ for (let i = 0; i < FIREFLY_COUNT; i++) {
         (Math.random() - 0.5) * 0.05
     );
     
-    fireflyPositions.push(position);
-    fireflyVelocities.push(velocity);
+    // Initialize Kuramoto state
+    // Random initial phase (spread across the cycle)
+    fireflyPhases.push(Math.random() * Math.PI * 2);
+    // Natural frequency with some variance (creates diversity)
+    fireflyFrequencies.push(
+        KURAMOTO_CONFIG.baseFrequency + 
+        (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance
+    );
     
-    // Set initial instance matrix
-    tempMatrix.setPosition(position);
-    fireflyMesh.setMatrixAt(i, tempMatrix);
-}
-fireflyMesh.instanceMatrix.needsUpdate = true;
-
-// Update all instance matrices from positions (call every frame)
-function updateFireflyMatrices() {
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
-        tempMatrix.setPosition(fireflyPositions[i]);
-        fireflyMesh.setMatrixAt(i, tempMatrix);
-    }
-    fireflyMesh.instanceMatrix.needsUpdate = true;
+    fireflies.push(fireflyGroup);
+    fireflyVelocities.push(velocity);
+    fireflyPositions.push(fireflyGroup.position.clone());
+    
+    scene.add(fireflyGroup);
 }
 
 // ==================== BOIDS ALGORITHM ====================
@@ -297,16 +353,16 @@ function limit(vector, max) {
 function separation(fireflyIndex, radius = BOIDS_CONFIG.separationDistance) {
     const steer = new THREE.Vector3();
     let count = 0;
-    const pos = fireflyPositions[fireflyIndex];
+    const pos = fireflies[fireflyIndex].position;
     
     for (let i = 0; i < FIREFLY_COUNT; i++) {
         if (i === fireflyIndex) continue;
         
-        const distance = pos.distanceTo(fireflyPositions[i]);
+        const distance = pos.distanceTo(fireflies[i].position);
         
         // Use the passed 'radius' instead of the constant
         if (distance < radius && distance > 0) {
-            const diff = new THREE.Vector3().subVectors(pos, fireflyPositions[i]);
+            const diff = new THREE.Vector3().subVectors(pos, fireflies[i].position);
             diff.normalize();
             diff.divideScalar(distance); // weight by distance
             steer.add(diff);
@@ -328,12 +384,12 @@ function separation(fireflyIndex, radius = BOIDS_CONFIG.separationDistance) {
 function alignment(fireflyIndex) {
     const steer = new THREE.Vector3();
     let count = 0;
-    const pos = fireflyPositions[fireflyIndex];
+    const pos = fireflies[fireflyIndex].position;
     
     for (let i = 0; i < FIREFLY_COUNT; i++) {
         if (i === fireflyIndex) continue;
         
-        const distance = pos.distanceTo(fireflyPositions[i]);
+        const distance = pos.distanceTo(fireflies[i].position);
         if (distance < BOIDS_CONFIG.alignmentDistance && distance > 0) {
             steer.add(fireflyVelocities[i]);
             count++;
@@ -354,14 +410,14 @@ function alignment(fireflyIndex) {
 function cohesion(fireflyIndex) {
     const center = new THREE.Vector3();
     let count = 0;
-    const pos = fireflyPositions[fireflyIndex];
+    const pos = fireflies[fireflyIndex].position;
     
     for (let i = 0; i < FIREFLY_COUNT; i++) {
         if (i === fireflyIndex) continue;
         
-        const distance = pos.distanceTo(fireflyPositions[i]);
+        const distance = pos.distanceTo(fireflies[i].position);
         if (distance < BOIDS_CONFIG.cohesionDistance && distance > 0) {
-            center.add(fireflyPositions[i]);
+            center.add(fireflies[i].position);
             count++;
         }
     }
@@ -380,7 +436,7 @@ function cohesion(fireflyIndex) {
 }
 
 function applyJarBoundary(fireflyIndex) {
-    const pos = fireflyPositions[fireflyIndex];
+    const pos = fireflies[fireflyIndex].position;
     const vel = fireflyVelocities[fireflyIndex];
     
     // Config
@@ -485,7 +541,7 @@ function updateBoids() {
         let flockingStrength = 1.0; 
         
         if (pokePosition) {
-            const dist = fireflyPositions[i].distanceTo(pokePosition);
+            const dist = fireflies[i].position.distanceTo(pokePosition);
             if (dist < REPULSION_RADIUS) {
                 const timeProgress = pokeTime / POKE_DURATION;
                 flockingStrength = Math.pow(timeProgress, 2); 
@@ -495,15 +551,6 @@ function updateBoids() {
                 const burstAmount = (BOIDS_CONFIG.maxSpeed * MAX_BURST_MULTIPLIER) * decayFactor;
                 currentSpeedLimit += burstAmount * (1.0 - timeProgress);
             }
-        }
-        
-        // === 2.5 APPLY SHAKE STUN (overrides cohesion/alignment) ===
-        const shakeRecovery = getFlockingRecoveryMultiplier();
-        flockingStrength *= shakeRecovery;
-        
-        // Increase speed limit during shake for more chaotic movement
-        if (isShaking) {
-            currentSpeedLimit += BOIDS_CONFIG.maxSpeed * 3.0 * shakeIntensity;
         }
 
         // === 3. APPLY FORCES ===
@@ -540,7 +587,105 @@ function updateBoids() {
         applyJarBoundary(i);
         limit(fireflyVelocities[i], currentSpeedLimit);
         
-        fireflyPositions[i].add(fireflyVelocities[i]);
+        fireflies[i].position.add(fireflyVelocities[i]);
+    }
+}
+
+// ==================== KURAMOTO MODEL ====================
+// Updates firefly phases and brightness based on the Kuramoto model
+// dθᵢ/dt = ωᵢ + (K/N_neighbors) * Σⱼ sin(θⱼ - θᵢ)
+function updateKuramoto(deltaTime) {
+    const K = KURAMOTO_CONFIG.couplingStrength;
+    const radius = KURAMOTO_CONFIG.couplingRadius;
+    
+    // Calculate phase derivatives for all fireflies
+    const phaseDerivatives = [];
+    
+    for (let i = 0; i < FIREFLY_COUNT; i++) {
+        const pos_i = fireflies[i].position;
+        const phase_i = fireflyPhases[i];
+        const omega_i = fireflyFrequencies[i];
+        
+        // Start with natural frequency
+        let dPhase = omega_i;
+        
+        // Sum coupling influence from nearby fireflies (local Kuramoto)
+        let neighborCount = 0;
+        let couplingSum = 0;
+        
+        for (let j = 0; j < FIREFLY_COUNT; j++) {
+            if (i === j) continue;
+            
+            const distance = pos_i.distanceTo(fireflies[j].position);
+            
+            // Only couple with nearby fireflies
+            if (distance < radius) {
+                const phase_j = fireflyPhases[j];
+                // Kuramoto coupling term: sin(θⱼ - θᵢ)
+                couplingSum += Math.sin(phase_j - phase_i);
+                neighborCount++;
+            }
+        }
+        
+        // Add coupling influence (normalized by neighbor count)
+        if (neighborCount > 0) {
+            dPhase += (K / neighborCount) * couplingSum;
+        }
+        
+        phaseDerivatives.push(dPhase);
+    }
+    
+    // Update phases and brightness
+    for (let i = 0; i < FIREFLY_COUNT; i++) {
+        // Update phase (Euler integration)
+        fireflyPhases[i] += phaseDerivatives[i] * deltaTime;
+        
+        // Keep phase in [0, 2π]
+        while (fireflyPhases[i] > Math.PI * 2) {
+            fireflyPhases[i] -= Math.PI * 2;
+        }
+        while (fireflyPhases[i] < 0) {
+            fireflyPhases[i] += Math.PI * 2;
+        }
+        
+        // Calculate brightness based on phase
+        // Using sin(phase) with a threshold to ensure ~50%+ are on
+        const sinPhase = Math.sin(fireflyPhases[i]);
+        
+        let brightness;
+        if (sinPhase > KURAMOTO_CONFIG.brightnessThreshold) {
+            // Firefly is "on" - map from threshold to 1 -> minBrightness to maxBrightness
+            const normalized = (sinPhase - KURAMOTO_CONFIG.brightnessThreshold) / 
+                             (1 - KURAMOTO_CONFIG.brightnessThreshold);
+            brightness = KURAMOTO_CONFIG.minBrightness + 
+                        normalized * (KURAMOTO_CONFIG.maxBrightness - KURAMOTO_CONFIG.minBrightness);
+        } else {
+            // Firefly is "off" - very dim glow
+            brightness = KURAMOTO_CONFIG.minBrightness;
+        }
+        
+        // Update core material opacity
+        fireflyMaterials[i].opacity = brightness;
+        
+        // Update glow sprite
+        const glowSprite = fireflyGlowSprites[i];
+        glowSprite.material.opacity = brightness;
+        // Scale glow based on brightness for pulsing effect
+        const glowScale = 0.3 + brightness * 0.5;
+        glowSprite.scale.set(glowScale, glowScale, 1);
+        
+        // Update color - warm yellow-green when bright, dim green when off
+        const r = 0.6 + brightness * 0.4;
+        const g = 0.8 + brightness * 0.2;
+        const b = brightness * 0.3;
+        fireflyMaterials[i].color.setRGB(r, g, b);
+        glowSprite.material.color.setRGB(r, g, b * 0.5);
+        
+        // Update point light if this firefly has one
+        if (fireflyPointLights[i]) {
+            fireflyPointLights[i].intensity = brightness * 0.5;
+            fireflyPointLights[i].color.setRGB(r, g, b);
+        }
     }
 }
 
@@ -550,102 +695,6 @@ const mouse = new THREE.Vector2();
 let pokePosition = null;
 let pokeTime = 0;
 const POKE_DURATION = 1.0; // seconds
-
-// ==================== SHAKE THE JAR ====================
-const SHAKE_CONFIG = {
-    velocityThreshold: 15,    // Mouse speed required to trigger shake
-    chaosMultiplier: 0.3,     // How much velocity to add to fireflies
-    recoveryTime: 2.0,        // Seconds to recover from stun
-    sampleWindow: 100         // ms to sample mouse velocity
-};
-
-let isShaking = false;
-let shakeRecoveryTime = 0;
-let shakeIntensity = 0;
-let lastMousePos = { x: 0, y: 0 };
-let lastMouseTime = 0;
-let mouseVelocity = 0;
-let isDragging = false;
-
-// Track mouse movement for shake detection
-function onMouseDown(event) {
-    isDragging = true;
-    lastMousePos = { x: event.clientX, y: event.clientY };
-    lastMouseTime = performance.now();
-}
-
-function onMouseUp() {
-    isDragging = false;
-    mouseVelocity = 0;
-}
-
-function onMouseMove(event) {
-    if (!isDragging) return;
-    
-    const currentTime = performance.now();
-    const deltaTime = currentTime - lastMouseTime;
-    
-    if (deltaTime > 0) {
-        // Calculate mouse velocity (pixels per second)
-        const dx = event.clientX - lastMousePos.x;
-        const dy = event.clientY - lastMousePos.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        mouseVelocity = (distance / deltaTime) * 1000; // Convert to pixels/second
-        
-        // Check if we're shaking hard enough
-        if (mouseVelocity > SHAKE_CONFIG.velocityThreshold * 50) {
-            triggerShake(dx, dy, mouseVelocity);
-        }
-    }
-    
-    lastMousePos = { x: event.clientX, y: event.clientY };
-    lastMouseTime = currentTime;
-}
-
-function triggerShake(dx, dy, velocity) {
-    isShaking = true;
-    shakeRecoveryTime = 0;
-    shakeIntensity = Math.min(velocity / 1000, 2.0); // Cap intensity
-    
-    // Normalize the shake direction
-    const shakeDirX = dx / Math.abs(dx + 0.001);
-    const shakeDirY = dy / Math.abs(dy + 0.001);
-    
-    // Apply chaotic velocity to ALL fireflies
-    for (let i = 0; i < FIREFLY_COUNT; i++) {
-        // Random chaos + directional push from shake
-        const chaos = new THREE.Vector3(
-            (Math.random() - 0.5 + shakeDirX * 0.5) * SHAKE_CONFIG.chaosMultiplier * shakeIntensity,
-            (Math.random() - 0.5) * SHAKE_CONFIG.chaosMultiplier * shakeIntensity,
-            (Math.random() - 0.5 - shakeDirY * 0.3) * SHAKE_CONFIG.chaosMultiplier * shakeIntensity
-        );
-        
-        fireflyVelocities[i].add(chaos);
-    }
-}
-
-function updateShakeRecovery(deltaTime) {
-    if (isShaking) {
-        shakeRecoveryTime += deltaTime;
-        
-        // Calculate recovery progress (0 = just shaken, 1 = fully recovered)
-        const recoveryProgress = Math.min(shakeRecoveryTime / SHAKE_CONFIG.recoveryTime, 1.0);
-        
-        // Ease out for smoother recovery
-        shakeIntensity = (1.0 - recoveryProgress) * (1.0 - recoveryProgress);
-        
-        if (recoveryProgress >= 1.0) {
-            isShaking = false;
-            shakeIntensity = 0;
-        }
-    }
-}
-
-// Get the current weight multiplier for flocking behaviors (stunned = 0, recovered = 1)
-function getFlockingRecoveryMultiplier() {
-    if (!isShaking) return 1.0;
-    return Math.min(shakeRecoveryTime / SHAKE_CONFIG.recoveryTime, 1.0);
-}
 
 function onMouseClick(event) {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -668,7 +717,7 @@ function getRepulsion(fireflyIndex) {
     const REPULSION_RADIUS = 3.5; // Slightly larger radius
     const MAX_REPULSION_FORCE = 2.0; // Much stronger kick
 
-    const pos = fireflyPositions[fireflyIndex];
+    const pos = fireflies[fireflyIndex].position;
     const distance = pos.distanceTo(pokePosition);
 
     // Only affect fireflies inside the radius
@@ -709,20 +758,6 @@ function onKeyPress(event) {
         case 'r': // Reset
             resetSimulation();
             break;
-        case 't': // Toggle firefly camera view
-            fireflyCameraMode = !fireflyCameraMode;
-            if (fireflyCameraMode) {
-                // Enter firefly camera mode - select random firefly
-                trackedFireflyIndex = Math.floor(Math.random() * FIREFLY_COUNT);
-                controls.enabled = false; // Disable orbit controls
-            } else {
-                // Exit firefly camera mode - restore original camera
-                camera.position.copy(originalCameraPosition);
-                controls.target.copy(originalControlsTarget);
-                controls.enabled = true; // Re-enable orbit controls
-                trackedFireflyIndex = -1;
-            }
-            break;
     }
 }
 
@@ -737,7 +772,7 @@ function resetSimulation() {
         const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
         const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
         
-        fireflyPositions[i].set(
+        fireflies[i].position.set(
             Math.cos(angle) * radius,
             height,
             Math.sin(angle) * radius
@@ -748,15 +783,22 @@ function resetSimulation() {
             (Math.random() - 0.5) * 0.05,
             (Math.random() - 0.5) * 0.05
         );
+        
+        // Reset Kuramoto state - random phases for desynchronized start
+        fireflyPhases[i] = Math.random() * Math.PI * 2;
+        fireflyFrequencies[i] = KURAMOTO_CONFIG.baseFrequency + 
+            (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance;
+        
+        // Reset material and glow
+        fireflyMaterials[i].opacity = 1.0;
+        fireflyGlowSprites[i].material.opacity = 1.0;
+        fireflyGlowSprites[i].scale.set(0.5, 0.5, 1);
+        
+        // Reset point light if exists
+        if (fireflyPointLights[i]) {
+            fireflyPointLights[i].intensity = 0.3;
+        }
     }
-    
-    // Update instance matrices after reset
-    updateFireflyMatrices();
-    
-    // Reset shake state
-    isShaking = false;
-    shakeIntensity = 0;
-    shakeRecoveryTime = 0;
 }
 
 // ==================== ANIMATION LOOP ====================
@@ -765,22 +807,8 @@ const clock = new THREE.Clock();
 function animate() {
     const deltaTime = clock.getDelta();
     
-    // Update firefly camera if in firefly mode
-    if (fireflyCameraMode && trackedFireflyIndex >= 0 && trackedFireflyIndex < fireflyPositions.length) {
-        const fireflyPos = fireflyPositions[trackedFireflyIndex];
-        // Position camera at firefly position
-        camera.position.copy(fireflyPos);
-        // Look slightly ahead in the direction the firefly is moving
-        if (fireflyVelocities[trackedFireflyIndex]) {
-            const lookAhead = fireflyPos.clone().add(fireflyVelocities[trackedFireflyIndex].clone().multiplyScalar(2));
-            camera.lookAt(lookAhead);
-        } else {
-            camera.lookAt(fireflyPos.clone().add(new THREE.Vector3(0, 0, 1)));
-        }
-    } else {
-        // Update controls (only when not in firefly mode)
-        controls.update();
-    }
+    // Update controls
+    controls.update();
     
     // Update jar lid animation
     if (jarOpen && lidRotation < LID_OPEN_ANGLE) {
@@ -800,14 +828,11 @@ function animate() {
     // Update poke effect
     updatePokeEffect(deltaTime);
     
-    // Update shake recovery
-    updateShakeRecovery(deltaTime);
-    
     // Update boids
     updateBoids();
     
-    // Update instanced mesh matrices from positions
-    updateFireflyMatrices();
+    // Update Kuramoto model (firefly synchronization/flashing)
+    updateKuramoto(deltaTime);
     
     // Render with bloom post-processing
     composer.render();
@@ -819,16 +844,12 @@ renderer.setAnimationLoop(animate);
 window.addEventListener('click', onMouseClick);
 window.addEventListener('keydown', onKeyPress);
 
-// Shake detection events
-window.addEventListener('mousedown', onMouseDown);
-window.addEventListener('mouseup', onMouseUp);
-window.addEventListener('mousemove', onMouseMove);
-
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     composer.setSize(window.innerWidth, window.innerHeight);
+    bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ==================== OBJ LOADER SETUP (for future use) ====================
@@ -860,5 +881,6 @@ function loadJarModel(path) {
 */
 
 console.log('Fireflies simulation initialized!');
-console.log('Controls: Mouse to move camera, Click to poke, Drag rapidly to shake jar, Spacebar to open jar, R to reset');
+console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
+console.log('Controls: Mouse to move camera, Click to poke, Spacebar to open jar, R to reset');
 
