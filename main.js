@@ -82,7 +82,7 @@ const bloomPass = new UnrealBloomPass(
 composer.addPass(bloomPass);
 // Camera controls (Pointer Lock for FPS-style look)
 const controls = new PointerLockControls(camera, renderer.domElement);
-scene.add(controls.getObject());
+scene.add(controls.object);
 
 // ==================== LIGHTING ====================
 // Dim ambient for night-time atmosphere
@@ -832,8 +832,8 @@ const keysPressed = {
     a: false,
     s: false,
     d: false,
-    ArrowUp: false,
-    ArrowDown: false
+    q: false, // up
+    e: false
 };
 
 const CAMERA_MOVE_SPEED = 10; // Units per second
@@ -853,7 +853,7 @@ function onKeyDown(event) {
     const key = event.key.toLowerCase();
     
     // Handle arrow keys (they don't get lowercased)
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    if (event.key === 'q' || event.key === 'e') {
         keysPressed[event.key] = true;
         return;
     }
@@ -876,7 +876,7 @@ function onKeyDown(event) {
 
 function onKeyUp(event) {
     // Handle arrow keys (they don't get lowercased)
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    if (event.key === 'q' || event.key === 'e') {
         keysPressed[event.key] = false;
         return;
     }
@@ -889,7 +889,7 @@ function onKeyUp(event) {
 
 function updateCameraMovement(deltaTime) {
     const moveDistance = CAMERA_MOVE_SPEED * deltaTime;
-    const controlledObject = controls.getObject();
+    const controlledObject = controls.object;
 
     if (keysPressed.w) {
         controls.moveForward(moveDistance);
@@ -903,6 +903,8 @@ function updateCameraMovement(deltaTime) {
     if (keysPressed.a) {
         controls.moveRight(-moveDistance);
     }
+
+    // move up/down with arrow keys
     if (keysPressed.q) {
         controlledObject.position.y += moveDistance;
     }
