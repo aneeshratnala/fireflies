@@ -16,6 +16,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
+
 camera.position.set(-5, 1.6, 0);
 camera.lookAt(0, 0, 0);
 
@@ -1103,6 +1104,35 @@ function onMouseUp(event) {
     hasDragged = false;
 }
 
+// First-person camera zoom (FOV-based)
+let targetFOV = 75; // Target FOV for smooth zoom
+const MIN_FOV = 10;   // Maximum zoom in
+const MAX_FOV = 120;  // Maximum zoom out
+const ZOOM_SPEED = 50; // How fast to zoom (degrees per second)
+const ZOOM_SMOOTHNESS = 8; // Smooth interpolation speed
+
+function handleZoom(deltaTime) {
+    // Smoothly interpolate to target FOV
+    if (Math.abs(camera.fov - targetFOV) > 0.1) {
+        camera.fov += (targetFOV - camera.fov) * ZOOM_SMOOTHNESS * deltaTime;
+        camera.updateProjectionMatrix();
+    }
+}
+
+// Zoom in/out with mouse wheel (first-person style)
+function onMouseWheel(event) {
+    event.preventDefault();
+    
+    // Adjust target FOV based on wheel direction
+    // Scrolling up (negative deltaY) = zoom in (decrease FOV)
+    // Scrolling down (positive deltaY) = zoom out (increase FOV)
+    const zoomDelta = (event.deltaY > 0 ? 1 : -1) * ZOOM_SPEED * 0.016; // Normalize to ~60fps
+    targetFOV += zoomDelta;
+    
+    // Clamp target FOV to min/max limits
+    targetFOV = Math.max(MIN_FOV, Math.min(MAX_FOV, targetFOV));
+}
+
 function getRepulsion(fireflyIndex) {
     if (!pokePosition) return new THREE.Vector3();
 
@@ -1403,6 +1433,9 @@ function animate() {
     // Update camera movement (WASD + T/B)
     updateCameraMovement(deltaTime);
     
+    // Handle first-person zoom
+    handleZoom(deltaTime);
+    
     // Check for firefly collisions with camera
     checkFireflyCollisions();
     
@@ -1439,10 +1472,40 @@ function animate() {
 
 renderer.setAnimationLoop(animate);
 
+// ==================== AUDIO ====================
+// Firefly chirping ambient sound
+const fireflyAudio = new Audio('smartsound_ATMO_BUSH_Water_Hole_Early_Morning_01.mp3'); // Update path to your audio file
+fireflyAudio.loop = true;
+fireflyAudio.volume = 0.3; // Adjust volume (0.0 to 1.0)
+
+// Try to play audio (may require user interaction due to browser autoplay policies)
+function startFireflyAudio() {
+    fireflyAudio.play().catch(error => {
+        console.log('Audio autoplay prevented. Audio will start on user interaction.');
+    });
+}
+
+// Start audio on first user interaction
+let audioStarted = false;
+function enableAudio() {
+    if (!audioStarted) {
+        startFireflyAudio();
+        audioStarted = true;
+    }
+}
+
+// Enable audio on any user interaction
+window.addEventListener('click', enableAudio);
+window.addEventListener('keydown', enableAudio);
+
+// Try to start immediately (may not work in all browsers)
+startFireflyAudio();
+
 // ==================== EVENT LISTENERS ====================
 renderer.domElement.addEventListener('mousedown', onMouseDown);
 window.addEventListener('mousemove', onMouseMove);
 window.addEventListener('mouseup', onMouseUp);
+window.addEventListener('wheel', onMouseWheel, { passive: false }); // Zoom with mouse wheel
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 
