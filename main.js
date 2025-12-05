@@ -1035,6 +1035,35 @@ function animate() {
 
 renderer.setAnimationLoop(animate);
 
+// ==================== AUDIO ====================
+// Firefly chirping ambient sound
+const fireflyAudio = new Audio('smartsound_ATMO_BUSH_Water_Hole_Early_Morning_01.mp3'); // Update path to your audio file
+fireflyAudio.loop = true;
+fireflyAudio.volume = 0.3; // Adjust volume (0.0 to 1.0)
+
+// Try to play audio (may require user interaction due to browser autoplay policies)
+function startFireflyAudio() {
+    fireflyAudio.play().catch(error => {
+        console.log('Audio autoplay prevented. Audio will start on user interaction.');
+    });
+}
+
+// Start audio on first user interaction
+let audioStarted = false;
+function enableAudio() {
+    if (!audioStarted) {
+        startFireflyAudio();
+        audioStarted = true;
+    }
+}
+
+// Enable audio on any user interaction
+window.addEventListener('click', enableAudio);
+window.addEventListener('keydown', enableAudio);
+
+// Try to start immediately (may not work in all browsers)
+startFireflyAudio();
+
 // ==================== EVENT LISTENERS ====================
 window.addEventListener('click', onMouseClick);
 window.addEventListener('keydown', onKeyDown);
