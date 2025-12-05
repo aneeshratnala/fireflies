@@ -6,7 +6,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 
 // ==================== SCENE SETUP ====================
 const scene = new THREE.Scene();
@@ -81,9 +80,19 @@ const bloomPass = new UnrealBloomPass(
     0.85     // threshold - lowered so fireflies bloom even through glass
 );
 composer.addPass(bloomPass);
-// Camera controls (Pointer Lock for FPS-style look)
-const controls = new PointerLockControls(camera, renderer.domElement);
-scene.add(controls.object);
+// Camera controls (Drag-to-look style)
+// Custom implementation for press-and-hold to rotate camera
+let isDragging = false;
+let previousMouseX = 0;
+let previousMouseY = 0;
+const MOUSE_SENSITIVITY = 0.002;
+
+// Euler angles for camera rotation
+const cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+cameraEuler.setFromQuaternion(camera.quaternion);
+
+// Add camera to scene so its children (tongue) are rendered
+scene.add(camera);
 
 // ==================== TONGUE ====================
 let tongueProgress = 0; // 0 = hidden, 1 = fully extended
@@ -450,16 +459,12 @@ let jarFrosted = false;
 
 // Jar body (cylinder)
 const jarGeometry = new THREE.CylinderGeometry(2, 2, 4, 32);
-const jarMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff,
+const jarMaterial = new THREE.MeshPhongMaterial({
+    color: 0xaaddff,
     transparent: true,
-    opacity: 0.3,
-    transmission: 0.9,       // High transmission for glass-like transparency
-    thickness: 0.5,          // Glass thickness for refraction
-    roughness: 0.05,         // Very smooth glass (clear state)
-    metalness: 0.0,
-    ior: 1.5,                // Index of refraction (glass is ~1.5)
-    envMapIntensity: 1.0,
+    opacity: 0.25,
+    shininess: 100,
+    specular: 0x444444,
     side: THREE.DoubleSide
 });
 const jarBody = new THREE.Mesh(jarGeometry, jarMaterial);
@@ -469,26 +474,16 @@ function toggleFrostedGlass() {
     jarFrosted = !jarFrosted;
     
     if (jarFrosted) {
-        // Frosted glass - apply roughness map and increase roughness
-        jarMaterial.roughnessMap = frostedRoughnessMap;
-        jarMaterial.roughness = 1.0;          // Maximum roughness
-        jarMaterial.transmission = 0.3;       // Much less transmission (very diffuse)
-        jarMaterial.opacity = 0.7;            // More opaque
-        jarMaterial.thickness = 1.5;          // Thicker for more scattering
-        jarMaterial.attenuationColor = new THREE.Color(0xeeeeff); // Light scattering tint
-        jarMaterial.attenuationDistance = 0.5; // Short distance for more scattering
-        jarMaterial.color.setHex(0xf0f5ff);   // Stronger blue-white tint
+        // Frosted glass - more opaque, less shiny
+        jarMaterial.opacity = 0.6;
+        jarMaterial.shininess = 20;
+        jarMaterial.color.setHex(0xddeeff);
         console.log('🧊 Jar is now FROSTED');
     } else {
-        // Clear glass - remove roughness map
-        jarMaterial.roughnessMap = null;
-        jarMaterial.roughness = 0.05;         // Very smooth
-        jarMaterial.transmission = 0.9;       // High transmission
-        jarMaterial.opacity = 0.3;            // More transparent
-        jarMaterial.thickness = 0.5;          // Normal thickness
-        jarMaterial.attenuationColor = new THREE.Color(0xffffff);
-        jarMaterial.attenuationDistance = Infinity; // No attenuation
-        jarMaterial.color.setHex(0xffffff);   // Pure white
+        // Clear glass
+        jarMaterial.opacity = 0.25;
+        jarMaterial.shininess = 100;
+        jarMaterial.color.setHex(0xaaddff);
         console.log('✨ Jar is now CLEAR');
     }
     
@@ -532,7 +527,7 @@ const KURAMOTO_CONFIG = {
     baseFrequency: 1.5,        // Base angular frequency (radians per second) - slower for more visible pulses
     frequencyVariance: 0.3,    // Variance in natural frequencies
     brightnessThreshold: -0.3, // sin(phase) threshold for "on" state (gives ~60% on time)
-    minBrightness: 0.1,        // Minimum glow when "off" (slightly visible)
+    minBrightness: 0.5,        // Minimum glow when "off" - visible yellow dot
     maxBrightness: 2.0         // Maximum glow when "on" (brighter for bloom effect)
 };
 
@@ -983,26 +978,53 @@ function updateKuramoto(deltaTime) {
             brightness = KURAMOTO_CONFIG.minBrightness;
         }
         
+        // Check if firefly is inside or outside the jar
+        const fireflyPos = fireflies[i].position;
+        const horizontalDistSq = fireflyPos.x * fireflyPos.x + fireflyPos.z * fireflyPos.z;
+        const jarRadius = BOIDS_CONFIG.jarRadius;
+        const jarHeight = BOIDS_CONFIG.jarHeight / 2;
+        const isOutside = horizontalDistSq > jarRadius * jarRadius || fireflyPos.y > jarHeight;
+        
+        // Normalize brightness factor (0 = off, 1 = fully on)
+        const brightnessFactor = (brightness - KURAMOTO_CONFIG.minBrightness) / 
+                                 (KURAMOTO_CONFIG.maxBrightness - KURAMOTO_CONFIG.minBrightness);
+        
+        // Scale brightness based on location
+        let coreOpacity;
+        let glowOpacity;
+        let glowScale;
+        
+        if (isOutside) {
+            // Outside jar: moderate brightness, visible glow
+            coreOpacity = 0.7 + brightnessFactor * 0.3;  // 0.7 to 1.0
+            glowOpacity = 0.3 + brightnessFactor * 0.5;  // 0.3 to 0.8
+            glowScale = 0.25 + brightnessFactor * 0.35;  // 0.25 to 0.6
+        } else {
+            // Inside jar: always visible core, controlled glow to prevent overwhelming
+            coreOpacity = 0.85 + brightnessFactor * 0.15; // 0.85 to 1.0 - always visible
+            glowOpacity = 0.2 + brightnessFactor * 0.4;   // 0.2 to 0.6 - reduced max glow
+            glowScale = 0.2 + brightnessFactor * 0.25;    // 0.2 to 0.45 - smaller glow inside
+        }
+        
         // Update core material opacity
-        fireflyMaterials[i].opacity = brightness;
+        fireflyMaterials[i].opacity = coreOpacity;
         
         // Update glow sprite
         const glowSprite = fireflyGlowSprites[i];
-        glowSprite.material.opacity = brightness;
-        // Scale glow based on brightness for pulsing effect
-        const glowScale = 0.3 + brightness * 0.5;
+        glowSprite.material.opacity = glowOpacity;
         glowSprite.scale.set(glowScale, glowScale, 1);
         
-        // Update color - warm yellow-green when bright, dim green when off
-        const r = 0.6 + brightness * 0.4;
-        const g = 0.8 + brightness * 0.2;
-        const b = brightness * 0.3;
+        // Update color - warm yellow always, brighter yellow-green when lit
+        const r = 1.0;
+        const g = 0.85 + brightnessFactor * 0.15;
+        const b = 0.3 + brightnessFactor * 0.2;
         fireflyMaterials[i].color.setRGB(r, g, b);
         glowSprite.material.color.setRGB(r, g, b * 0.5);
         
         // Update point light if this firefly has one
         if (fireflyPointLights[i]) {
-            fireflyPointLights[i].intensity = brightness * 0.5;
+            // Reduced intensity to prevent overwhelming glow
+            fireflyPointLights[i].intensity = isOutside ? 0.15 + brightnessFactor * 0.2 : 0.1 + brightnessFactor * 0.15;
             fireflyPointLights[i].color.setRGB(r, g, b);
         }
     }
@@ -1015,23 +1037,10 @@ let pokePosition = null;
 let pokeTime = 0;
 const POKE_DURATION = 1.0; // seconds
 
-function handleCanvasClick(event) {
-    if (!controls.isLocked) {
-        controls.lock();
-        return;
-    }
-    onMouseClick(event);
-}
-
 function onMouseClick(event) {
-    if (controls.isLocked) {
-        mouse.set(0, 0); // center of screen when pointer is locked
-    } else if (event) {
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    } else {
-        mouse.set(0, 0);
-    }
+    // Convert click position to normalized device coordinates
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     
     raycaster.setFromCamera(mouse, camera);
 
@@ -1042,6 +1051,56 @@ function onMouseClick(event) {
         pokePosition = intersects[0].point;
         pokeTime = 0; // Reset timer to start the effect
     }
+}
+
+// Mouse drag handlers for camera rotation
+let dragStartX = 0;
+let dragStartY = 0;
+let hasDragged = false;
+const DRAG_THRESHOLD = 5; // pixels - to distinguish click from drag
+
+function onMouseDown(event) {
+    isDragging = true;
+    hasDragged = false;
+    previousMouseX = event.clientX;
+    previousMouseY = event.clientY;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+}
+
+function onMouseMove(event) {
+    if (!isDragging) return;
+    
+    const deltaX = event.clientX - previousMouseX;
+    const deltaY = event.clientY - previousMouseY;
+    
+    // Check if we've moved enough to count as a drag
+    const totalDragX = Math.abs(event.clientX - dragStartX);
+    const totalDragY = Math.abs(event.clientY - dragStartY);
+    if (totalDragX > DRAG_THRESHOLD || totalDragY > DRAG_THRESHOLD) {
+        hasDragged = true;
+    }
+    
+    // Update camera rotation
+    cameraEuler.y -= deltaX * MOUSE_SENSITIVITY;
+    cameraEuler.x -= deltaY * MOUSE_SENSITIVITY;
+    
+    // Clamp vertical rotation to prevent flipping
+    cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraEuler.x));
+    
+    camera.quaternion.setFromEuler(cameraEuler);
+    
+    previousMouseX = event.clientX;
+    previousMouseY = event.clientY;
+}
+
+function onMouseUp(event) {
+    // Only trigger click if we didn't drag
+    if (!hasDragged && isDragging) {
+        onMouseClick(event);
+    }
+    isDragging = false;
+    hasDragged = false;
 }
 
 function getRepulsion(fireflyIndex) {
@@ -1150,27 +1209,34 @@ function onKeyUp(event) {
 
 function updateCameraMovement(deltaTime) {
     const moveDistance = CAMERA_MOVE_SPEED * deltaTime;
-    const controlledObject = controls.object;
+    
+    // Get forward and right vectors from camera orientation
+    const forward = new THREE.Vector3(0, 0, -1);
+    const right = new THREE.Vector3(1, 0, 0);
+    
+    // Apply camera's Y rotation to get world-space directions (ignore pitch for movement)
+    forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraEuler.y);
+    right.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraEuler.y);
 
     if (keysPressed.w) {
-        controls.moveForward(moveDistance);
+        camera.position.add(forward.clone().multiplyScalar(moveDistance));
     }
     if (keysPressed.s) {
-        controls.moveForward(-moveDistance);
+        camera.position.add(forward.clone().multiplyScalar(-moveDistance));
     }
     if (keysPressed.d) {
-        controls.moveRight(moveDistance);
+        camera.position.add(right.clone().multiplyScalar(moveDistance));
     }
     if (keysPressed.a) {
-        controls.moveRight(-moveDistance);
+        camera.position.add(right.clone().multiplyScalar(-moveDistance));
     }
 
-    // move up/down with arrow keys
+    // move up/down with Q/E keys
     if (keysPressed.q) {
-        controlledObject.position.y += moveDistance;
+        camera.position.y += moveDistance;
     }
     if (keysPressed.e) {
-        controlledObject.position.y -= moveDistance;
+        camera.position.y -= moveDistance;
     }
 }
 
@@ -1373,37 +1439,10 @@ function animate() {
 
 renderer.setAnimationLoop(animate);
 
-// ==================== AUDIO ====================
-// Firefly chirping ambient sound
-const fireflyAudio = new Audio('smartsound_ATMO_BUSH_Water_Hole_Early_Morning_01.mp3'); // Update path to your audio file
-fireflyAudio.loop = true;
-fireflyAudio.volume = 0.3; // Adjust volume (0.0 to 1.0)
-
-// Try to play audio (may require user interaction due to browser autoplay policies)
-function startFireflyAudio() {
-    fireflyAudio.play().catch(error => {
-        console.log('Audio autoplay prevented. Audio will start on user interaction.');
-    });
-}
-
-// Start audio on first user interaction
-let audioStarted = false;
-function enableAudio() {
-    if (!audioStarted) {
-        startFireflyAudio();
-        audioStarted = true;
-    }
-}
-
-// Enable audio on any user interaction
-window.addEventListener('click', enableAudio);
-window.addEventListener('keydown', enableAudio);
-
-// Try to start immediately (may not work in all browsers)
-startFireflyAudio();
-
 // ==================== EVENT LISTENERS ====================
-renderer.domElement.addEventListener('click', handleCanvasClick);
+renderer.domElement.addEventListener('mousedown', onMouseDown);
+window.addEventListener('mousemove', onMouseMove);
+window.addEventListener('mouseup', onMouseUp);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 
@@ -1445,7 +1484,7 @@ function loadJarModel(path) {
 
 console.log('Fireflies simulation initialized!');
 console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
-console.log('Controls: Click canvas to lock pointer, move mouse to look, click while locked to poke, Spacebar to open jar, R to reset, F to toggle frosted glass, Esc to unlock pointer');
+console.log('Controls: Click to poke fireflies, hold & drag to look around, Spacebar to open jar, R to reset, F to toggle frosted glass');
 console.log('Movement: W/A/S/D to move camera, Q to go up, E to go down');
 console.log('Catch fireflies by moving the camera close to them!');
 
