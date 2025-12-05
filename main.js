@@ -968,7 +968,8 @@ const keysPressed = {
 };
 
 const CAMERA_MOVE_SPEED = 10; // Units per second
-const FIREFLY_CATCH_RADIUS = 0.5; // Distance at which camera catches fireflies
+const FIREFLY_CATCH_RADIUS_INSIDE = 0.5; // Distance at which camera catches fireflies inside jar
+const FIREFLY_CATCH_RADIUS_OUTSIDE = 1.5; // Larger radius for fireflies outside jar (easier to catch)
 
 // Bug counter
 let bugsCaught = 0;
@@ -1044,6 +1045,19 @@ function updateCameraMovement(deltaTime) {
     }
 }
 
+function isFireflyOutsideJar(fireflyPos) {
+    // Check if firefly is outside the jar boundaries
+    const horizontalDistSq = fireflyPos.x * fireflyPos.x + fireflyPos.z * fireflyPos.z;
+    const jarRadius = BOIDS_CONFIG.jarRadius;
+    const jarHeight = BOIDS_CONFIG.jarHeight / 2;
+    
+    // Firefly is outside if it's beyond the jar walls OR above the jar rim
+    const isOutsideWalls = horizontalDistSq > jarRadius * jarRadius;
+    const isAboveRim = fireflyPos.y > jarHeight;
+    
+    return isOutsideWalls || isAboveRim;
+}
+
 function checkFireflyCollisions() {
     const cameraPos = camera.position;
     let caughtAny = false;
@@ -1053,7 +1067,11 @@ function checkFireflyCollisions() {
         const fireflyPos = fireflies[i].position;
         const distance = cameraPos.distanceTo(fireflyPos);
         
-        if (distance < FIREFLY_CATCH_RADIUS) {
+        // Use larger catch radius for fireflies outside the jar
+        const isOutside = isFireflyOutsideJar(fireflyPos);
+        const catchRadius = isOutside ? FIREFLY_CATCH_RADIUS_OUTSIDE : FIREFLY_CATCH_RADIUS_INSIDE;
+        
+        if (distance < catchRadius) {
             // Remove the firefly from the scene
             scene.remove(fireflies[i]);
             
