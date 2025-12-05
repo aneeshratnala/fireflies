@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 
 // ==================== SCENE SETUP ====================
 const scene = new THREE.Scene();
@@ -16,7 +17,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
-camera.position.set(0, 5, 15);
+camera.position.set(-5, 1.6, 0);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -80,12 +81,139 @@ const bloomPass = new UnrealBloomPass(
     0.85     // threshold - lowered so fireflies bloom even through glass
 );
 composer.addPass(bloomPass);
-// Camera controls
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.minDistance = 5;
-controls.maxDistance = 50;
+// Camera controls (Pointer Lock for FPS-style look)
+const controls = new PointerLockControls(camera, renderer.domElement);
+scene.add(controls.object);
+
+// ==================== TONGUE ====================
+let tongueProgress = 0; // 0 = hidden, 1 = fully extended
+const TONGUE_EXTEND_SPEED = 8.0; // How fast tongue extends (quick snap out)
+const TONGUE_RETRACT_SPEED = 4.0; // How fast tongue retracts
+const TONGUE_HOLD_TIME = 0.15; // Time to hold tongue at full extension
+let tongueHoldTimer = 0;
+let tongueState = 'hidden'; // 'hidden', 'extending', 'holding', 'retracting'
+
+// Create a smooth procedural tongue shape
+const tongueGroup = new THREE.Group();
+
+// Create tongue using a more organic shape - LatheGeometry for smooth rounded tongue
+const tonguePoints = [];
+// Create a tongue profile (side view) - starts thick, tapers to rounded tip
+tonguePoints.push(new THREE.Vector2(0, 0));        // tip (center)
+tonguePoints.push(new THREE.Vector2(0.06, 0.05));  // tip curve
+tonguePoints.push(new THREE.Vector2(0.10, 0.15));  // middle
+tonguePoints.push(new THREE.Vector2(0.12, 0.35));  // wider part
+tonguePoints.push(new THREE.Vector2(0.10, 0.55));  // base starts
+tonguePoints.push(new THREE.Vector2(0.08, 0.65));  // base
+tonguePoints.push(new THREE.Vector2(0, 0.70));     // back center
+
+const tongueGeometry = new THREE.LatheGeometry(tonguePoints, 32);
+const tongueMaterial = new THREE.MeshStandardMaterial({
+    color: 0xff5566,      // Pink-red tongue color
+    roughness: 0.6,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+});
+
+const tongueMesh = new THREE.Mesh(tongueGeometry, tongueMaterial);
+tongueMesh.rotation.x = -Math.PI / 2; // Point forward
+tongueMesh.position.z = 0;
+tongueGroup.add(tongueMesh);
+
+// Add a slight highlight/wet look with a second layer
+const tongueHighlightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xff7788,
+    roughness: 0.3,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.FrontSide
+});
+const tongueHighlight = new THREE.Mesh(tongueGeometry.clone(), tongueHighlightMaterial);
+tongueHighlight.rotation.x = -Math.PI / 2;
+tongueHighlight.scale.set(1.02, 1.02, 1.02); // Slightly larger
+tongueGroup.add(tongueHighlight);
+
+tongueGroup.visible = false;
+camera.add(tongueGroup);
+
+console.log('👅 Procedural tongue created and added to camera');
+
+// Function to trigger tongue animation
+function triggerTongueAnimation() {
+    if (tongueState === 'hidden') {
+        console.log('🦎 Tongue animation triggered!');
+        tongueState = 'extending';
+        tongueProgress = 0;
+        tongueGroup.visible = true;
+    }
+}
+
+// Function to update tongue animation
+function updateTongueAnimation(deltaTime) {
+    if (tongueState === 'hidden') return;
+    
+    switch (tongueState) {
+        case 'extending':
+            tongueProgress += TONGUE_EXTEND_SPEED * deltaTime;
+            if (tongueProgress >= 1) {
+                tongueProgress = 1;
+                tongueState = 'holding';
+                tongueHoldTimer = 0;
+            }
+            break;
+            
+        case 'holding':
+            tongueHoldTimer += deltaTime;
+            if (tongueHoldTimer >= TONGUE_HOLD_TIME) {
+                tongueState = 'retracting';
+            }
+            break;
+            
+        case 'retracting':
+            tongueProgress -= TONGUE_RETRACT_SPEED * deltaTime;
+            if (tongueProgress <= 0) {
+                tongueProgress = 0;
+                tongueState = 'hidden';
+                tongueGroup.visible = false;
+            }
+            break;
+    }
+    
+    // Ease function for smooth animation
+    const easedProgress = tongueState === 'extending' 
+        ? easeOutBack(tongueProgress) 
+        : easeInQuad(tongueProgress);
+    
+    // Position tongue in camera space (attached to camera, so moves with it):
+    // X: 0 (centered horizontally)
+    // Y: slightly below center (like coming from mouth)
+    // Z: negative = in front of camera
+    const extendDistance = 0.5 * easedProgress; // How far tongue extends forward
+    
+    // Scale the tongue - stretches forward as it extends
+    const baseScale = 0.6;
+    tongueGroup.scale.set(
+        baseScale,
+        baseScale * (1 + 0.5 * easedProgress), // Stretch longer as it extends
+        baseScale
+    );
+    
+    // Position: centered, slightly below eye level, extends forward
+    tongueGroup.position.set(0, -0.15, -0.4 - extendDistance);
+    tongueGroup.rotation.set(0, 0, 0);
+}
+
+// Easing functions for smooth animation
+function easeOutBack(t) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+function easeInQuad(t) {
+    return t * t;
+}
 
 // ==================== LIGHTING ====================
 // Dim ambient for night-time atmosphere
@@ -112,7 +240,6 @@ function phongToStandard(mat) {
         transparent: mat.transparent,
         opacity: mat.opacity,
         side: mat.side,
-        // You can tune these for rocks:
         metalness: 0.0,
         roughness: 0.9
     });
@@ -231,16 +358,142 @@ scene.add(ground);
 // For initial demo, using basic geometry. Can be replaced with OBJ model later
 const jarGroup = new THREE.Group();
 
+// Create procedural frosted glass roughness map
+function createFrostedRoughnessMap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    
+    // Base layer - high value for very rough/frosted base
+    ctx.fillStyle = '#dddddd';
+    ctx.fillRect(0, 0, 512, 512);
+    
+    // Add noise pattern for frosted effect
+    const imageData = ctx.getImageData(0, 0, 512, 512);
+    const data = imageData.data;
+    
+    // Create multi-scale noise for realistic frosted glass
+    for (let y = 0; y < 512; y++) {
+        for (let x = 0; x < 512; x++) {
+            const i = (y * 512 + x) * 4;
+            
+            // Multiple noise frequencies for realistic frost pattern - STRONGER
+            const noise1 = Math.random() * 100 - 50;  // Fine grain (stronger)
+            const noise2 = Math.sin(x * 0.15) * Math.cos(y * 0.15) * 40;  // Medium waves (stronger)
+            const noise3 = Math.sin(x * 0.03 + y * 0.03) * 30;  // Large patterns (stronger)
+            const noise4 = Math.sin(x * 0.08) * Math.sin(y * 0.12) * 25; // Extra texture layer
+            
+            // Combine noise layers
+            const noiseValue = noise1 + noise2 + noise3 + noise4;
+            
+            // Apply noise to RGB channels (grayscale roughness map)
+            const baseValue = 220; // Very high base = very rough/frosted
+            const value = Math.max(150, Math.min(255, baseValue + noiseValue)); // Clamp to high values
+            
+            data[i] = value;     // R
+            data[i + 1] = value; // G
+            data[i + 2] = value; // B
+            // Alpha stays at 255
+        }
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    
+    // Add more circular frost patterns (like ice crystals) - MORE of them
+    ctx.globalCompositeOperation = 'overlay';
+    for (let i = 0; i < 150; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const radius = Math.random() * 40 + 15;
+        
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+        gradient.addColorStop(0.3, 'rgba(240, 240, 255, 0.4)');
+        gradient.addColorStop(0.6, 'rgba(220, 220, 240, 0.3)');
+        gradient.addColorStop(1, 'rgba(200, 200, 220, 0)');
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Add streaky frost lines
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 80; i++) {
+        const x1 = Math.random() * 512;
+        const y1 = Math.random() * 512;
+        const angle = Math.random() * Math.PI * 2;
+        const length = Math.random() * 60 + 20;
+        const x2 = x1 + Math.cos(angle) * length;
+        const y2 = y1 + Math.sin(angle) * length;
+        
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(3, 3); // More tiling for denser frost pattern
+    return texture;
+}
+
+const frostedRoughnessMap = createFrostedRoughnessMap();
+
+// Jar state for frosted glass
+let jarFrosted = false;
+
 // Jar body (cylinder)
 const jarGeometry = new THREE.CylinderGeometry(2, 2, 4, 32);
-const jarMaterial = new THREE.MeshPhongMaterial({
-    color: 0xf0f0f0,
+const jarMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
     transparent: true,
-    opacity: 0.7,
-    shininess: 100,
+    opacity: 0.3,
+    transmission: 0.9,       // High transmission for glass-like transparency
+    thickness: 0.5,          // Glass thickness for refraction
+    roughness: 0.05,         // Very smooth glass (clear state)
+    metalness: 0.0,
+    ior: 1.5,                // Index of refraction (glass is ~1.5)
+    envMapIntensity: 1.0,
     side: THREE.DoubleSide
 });
 const jarBody = new THREE.Mesh(jarGeometry, jarMaterial);
+
+// Function to toggle frosted glass effect
+function toggleFrostedGlass() {
+    jarFrosted = !jarFrosted;
+    
+    if (jarFrosted) {
+        // Frosted glass - apply roughness map and increase roughness
+        jarMaterial.roughnessMap = frostedRoughnessMap;
+        jarMaterial.roughness = 1.0;          // Maximum roughness
+        jarMaterial.transmission = 0.3;       // Much less transmission (very diffuse)
+        jarMaterial.opacity = 0.7;            // More opaque
+        jarMaterial.thickness = 1.5;          // Thicker for more scattering
+        jarMaterial.attenuationColor = new THREE.Color(0xeeeeff); // Light scattering tint
+        jarMaterial.attenuationDistance = 0.5; // Short distance for more scattering
+        jarMaterial.color.setHex(0xf0f5ff);   // Stronger blue-white tint
+        console.log('🧊 Jar is now FROSTED');
+    } else {
+        // Clear glass - remove roughness map
+        jarMaterial.roughnessMap = null;
+        jarMaterial.roughness = 0.05;         // Very smooth
+        jarMaterial.transmission = 0.9;       // High transmission
+        jarMaterial.opacity = 0.3;            // More transparent
+        jarMaterial.thickness = 0.5;          // Normal thickness
+        jarMaterial.attenuationColor = new THREE.Color(0xffffff);
+        jarMaterial.attenuationDistance = Infinity; // No attenuation
+        jarMaterial.color.setHex(0xffffff);   // Pure white
+        console.log('✨ Jar is now CLEAR');
+    }
+    
+    jarMaterial.needsUpdate = true;
+}
 jarBody.position.y = 0;
 jarBody.castShadow = true;
 jarBody.receiveShadow = true;
@@ -762,9 +1015,23 @@ let pokePosition = null;
 let pokeTime = 0;
 const POKE_DURATION = 1.0; // seconds
 
+function handleCanvasClick(event) {
+    if (!controls.isLocked) {
+        controls.lock();
+        return;
+    }
+    onMouseClick(event);
+}
+
 function onMouseClick(event) {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    if (controls.isLocked) {
+        mouse.set(0, 0); // center of screen when pointer is locked
+    } else if (event) {
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    } else {
+        mouse.set(0, 0);
+    }
     
     raycaster.setFromCamera(mouse, camera);
 
@@ -822,12 +1089,13 @@ const keysPressed = {
     a: false,
     s: false,
     d: false,
-    ArrowUp: false,
-    ArrowDown: false
+    q: false, // up
+    e: false
 };
 
 const CAMERA_MOVE_SPEED = 10; // Units per second
-const FIREFLY_CATCH_RADIUS = 0.5; // Distance at which camera catches fireflies
+const FIREFLY_CATCH_RADIUS_INSIDE = 0.5; // Distance at which camera catches fireflies inside jar
+const FIREFLY_CATCH_RADIUS_OUTSIDE = 1.5; // Larger radius for fireflies outside jar (easier to catch)
 
 // Bug counter
 let bugsCaught = 0;
@@ -843,7 +1111,7 @@ function onKeyDown(event) {
     const key = event.key.toLowerCase();
     
     // Handle arrow keys (they don't get lowercased)
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    if (event.key === 'q' || event.key === 'e') {
         keysPressed[event.key] = true;
         return;
     }
@@ -861,12 +1129,15 @@ function onKeyDown(event) {
         case 'r': // Reset
             resetSimulation();
             break;
+        case 'f': // Toggle frosted glass
+            toggleFrostedGlass();
+            break;
     }
 }
 
 function onKeyUp(event) {
     // Handle arrow keys (they don't get lowercased)
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    if (event.key === 'q' || event.key === 'e') {
         keysPressed[event.key] = false;
         return;
     }
@@ -879,57 +1150,57 @@ function onKeyUp(event) {
 
 function updateCameraMovement(deltaTime) {
     const moveDistance = CAMERA_MOVE_SPEED * deltaTime;
-    
-    // Get camera's forward and right vectors (ignoring Y for horizontal movement)
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    forward.normalize();
-    
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-    
-    // Calculate movement direction
-    const movement = new THREE.Vector3();
-    
+    const controlledObject = controls.object;
+
     if (keysPressed.w) {
-        movement.add(forward);
+        controls.moveForward(moveDistance);
     }
     if (keysPressed.s) {
-        movement.sub(forward);
+        controls.moveForward(-moveDistance);
     }
     if (keysPressed.d) {
-        movement.add(right);
+        controls.moveRight(moveDistance);
     }
     if (keysPressed.a) {
-        movement.sub(right);
+        controls.moveRight(-moveDistance);
     }
-    if (keysPressed.ArrowUp) {
-        movement.y += 1;
+
+    // move up/down with arrow keys
+    if (keysPressed.q) {
+        controlledObject.position.y += moveDistance;
     }
-    if (keysPressed.ArrowDown) {
-        movement.y -= 1;
+    if (keysPressed.e) {
+        controlledObject.position.y -= moveDistance;
     }
+}
+
+function isFireflyOutsideJar(fireflyPos) {
+    // Check if firefly is outside the jar boundaries
+    const horizontalDistSq = fireflyPos.x * fireflyPos.x + fireflyPos.z * fireflyPos.z;
+    const jarRadius = BOIDS_CONFIG.jarRadius;
+    const jarHeight = BOIDS_CONFIG.jarHeight / 2;
     
-    // Apply movement
-    if (movement.length() > 0) {
-        movement.normalize().multiplyScalar(moveDistance);
-        camera.position.add(movement);
-        
-        // Update OrbitControls target to move with camera
-        controls.target.add(movement);
-    }
+    // Firefly is outside if it's beyond the jar walls OR above the jar rim
+    const isOutsideWalls = horizontalDistSq > jarRadius * jarRadius;
+    const isAboveRim = fireflyPos.y > jarHeight;
+    
+    return isOutsideWalls || isAboveRim;
 }
 
 function checkFireflyCollisions() {
     const cameraPos = camera.position;
+    let caughtAny = false;
     
     // Iterate backwards since we're removing elements
     for (let i = fireflies.length - 1; i >= 0; i--) {
         const fireflyPos = fireflies[i].position;
         const distance = cameraPos.distanceTo(fireflyPos);
         
-        if (distance < FIREFLY_CATCH_RADIUS) {
+        // Use larger catch radius for fireflies outside the jar
+        const isOutside = isFireflyOutsideJar(fireflyPos);
+        const catchRadius = isOutside ? FIREFLY_CATCH_RADIUS_OUTSIDE : FIREFLY_CATCH_RADIUS_INSIDE;
+        
+        if (distance < catchRadius) {
             // Remove the firefly from the scene
             scene.remove(fireflies[i]);
             
@@ -946,7 +1217,15 @@ function checkFireflyCollisions() {
             // Increment bug counter
             bugsCaught++;
             updateBugCounter();
+            
+            // Mark that we caught a firefly
+            caughtAny = true;
         }
+    }
+    
+    // Trigger tongue animation if we caught any fireflies
+    if (caughtAny) {
+        triggerTongueAnimation();
     }
 }
 
@@ -955,39 +1234,98 @@ function resetSimulation() {
     lidRotation = 0;
     jarLid.rotation.x = 0;
     
-    // Reset remaining fireflies to random positions inside jar
-    for (let i = 0; i < fireflies.length; i++) {
+    // Reset bug counter
+    bugsCaught = 0;
+    updateBugCounter();
+    
+    // Remove all existing fireflies from scene
+    for (let i = fireflies.length - 1; i >= 0; i--) {
+        scene.remove(fireflies[i]);
+    }
+    
+    // Clear all firefly arrays
+    fireflies.length = 0;
+    fireflyVelocities.length = 0;
+    fireflyPositions.length = 0;
+    fireflyMaterials.length = 0;
+    fireflyPhases.length = 0;
+    fireflyFrequencies.length = 0;
+    fireflyGlowSprites.length = 0;
+    fireflyPointLights.length = 0;
+    
+    // Recreate all fireflies
+    for (let i = 0; i < FIREFLY_COUNT; i++) {
+        // Create individual material for each firefly
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffaa,
+            transparent: true,
+            opacity: 1.0
+        });
+        fireflyMaterials.push(material);
+        
+        // Create firefly group to hold core + glow
+        const fireflyGroup = new THREE.Group();
+        
+        // Core (small bright center)
+        const core = new THREE.Mesh(fireflyGeometry, material);
+        fireflyGroup.add(core);
+        
+        // Glow sprite
+        const glowMaterial = new THREE.SpriteMaterial({
+            map: glowTexture,
+            color: 0xccff66,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 1.0
+        });
+        const glowSprite = new THREE.Sprite(glowMaterial);
+        glowSprite.scale.set(0.5, 0.5, 1);
+        fireflyGroup.add(glowSprite);
+        fireflyGlowSprites.push(glowSprite);
+        
+        // Add point light to some fireflies
+        if (i < LIGHTS_COUNT) {
+            const pointLight = new THREE.PointLight(0xccff66, 0.3, 2.0, 2);
+            fireflyGroup.add(pointLight);
+            fireflyPointLights.push(pointLight);
+        } else {
+            fireflyPointLights.push(null);
+        }
+        
+        // Random position inside jar
         const angle = Math.random() * Math.PI * 2;
         const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
         const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
         
-        fireflies[i].position.set(
+        fireflyGroup.position.set(
             Math.cos(angle) * radius,
             height,
             Math.sin(angle) * radius
         );
         
-        fireflyVelocities[i].set(
+        // Random initial velocity
+        const velocity = new THREE.Vector3(
             (Math.random() - 0.5) * 0.05,
             (Math.random() - 0.5) * 0.05,
             (Math.random() - 0.5) * 0.05
         );
         
-        // Reset Kuramoto state - random phases for desynchronized start
-        fireflyPhases[i] = Math.random() * Math.PI * 2;
-        fireflyFrequencies[i] = KURAMOTO_CONFIG.baseFrequency + 
-            (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance;
+        // Initialize Kuramoto state
+        fireflyPhases.push(Math.random() * Math.PI * 2);
+        fireflyFrequencies.push(
+            KURAMOTO_CONFIG.baseFrequency + 
+            (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance
+        );
         
-        // Reset material and glow
-        fireflyMaterials[i].opacity = 1.0;
-        fireflyGlowSprites[i].material.opacity = 1.0;
-        fireflyGlowSprites[i].scale.set(0.5, 0.5, 1);
+        fireflies.push(fireflyGroup);
+        fireflyVelocities.push(velocity);
+        fireflyPositions.push(fireflyGroup.position.clone());
         
-        // Reset point light if exists
-        if (fireflyPointLights[i]) {
-            fireflyPointLights[i].intensity = 0.3;
-        }
+        scene.add(fireflyGroup);
     }
+    
+    console.log('🔄 Simulation reset! All', FIREFLY_COUNT, 'fireflies restored.');
 }
 
 // ==================== ANIMATION LOOP ====================
@@ -1002,8 +1340,8 @@ function animate() {
     // Check for firefly collisions with camera
     checkFireflyCollisions();
     
-    // Update controls
-    controls.update();
+    // Update tongue animation
+    updateTongueAnimation(deltaTime);
     
     // Update jar lid animation
     if (jarOpen && lidRotation < LID_OPEN_ANGLE) {
@@ -1065,7 +1403,7 @@ window.addEventListener('keydown', enableAudio);
 startFireflyAudio();
 
 // ==================== EVENT LISTENERS ====================
-window.addEventListener('click', onMouseClick);
+renderer.domElement.addEventListener('click', handleCanvasClick);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 
@@ -1107,7 +1445,7 @@ function loadJarModel(path) {
 
 console.log('Fireflies simulation initialized!');
 console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
-console.log('Controls: Mouse to orbit camera, Click to poke, Spacebar to open jar, R to reset');
-console.log('Movement: W/A/S/D to move camera, T to go up, B to go down');
+console.log('Controls: Click canvas to lock pointer, move mouse to look, click while locked to poke, Spacebar to open jar, R to reset, F to toggle frosted glass, Esc to unlock pointer');
+console.log('Movement: W/A/S/D to move camera, Q to go up, E to go down');
 console.log('Catch fireflies by moving the camera close to them!');
 
