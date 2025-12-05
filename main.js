@@ -236,6 +236,13 @@ directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
 directionalLight.shadow.mapSize.height = 2048;
+directionalLight.shadow.camera.left = -120;
+directionalLight.shadow.camera.right = 120;
+directionalLight.shadow.camera.top = 140;
+directionalLight.shadow.camera.bottom = -120;
+directionalLight.shadow.camera.near = -20;
+directionalLight.shadow.camera.far = 50;
+
 scene.add(directionalLight);
 
 // Shared sizing helpers so vegetation aligns with the ground plane
@@ -344,6 +351,8 @@ rockLoader.load(
                 const rockMaterial = object.children[1].material;
                 const rockCount = 10;
                 const rockMesh = new THREE.InstancedMesh(rockGeometry, rockMaterial, rockCount);
+                rockMesh.castShadow = true;
+                rockMesh.receiveShadow = true;
                 const dummy = new THREE.Object3D();
                 for (let i = 0; i < rockCount; i++) {
                     dummy.position.set(Math.random() * 40 - 20, -2, Math.random() * 40 - 20);
