@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -238,6 +238,44 @@ directionalLight.shadow.mapSize.width = 2048;
 directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
 
+// Shared sizing helpers so vegetation aligns with the ground plane
+const GROUND_SIZE = 70;
+const HALF_GROUND = GROUND_SIZE / 2;
+
+function generateTreeBorderPositions(
+    halfSize,
+    treesPerEdge = 7,
+    inset = 1.2,
+    phase = 0,
+    tangentialJitter = 0.8,
+    radialJitter = 0.4
+) {
+    const positions = [];
+    const min = -halfSize + inset;
+    const max = halfSize - inset;
+    const denom = Math.max(treesPerEdge - 1, 1);
+
+    for (let i = 0; i < treesPerEdge; i++) {
+        const t = treesPerEdge === 1 ? 0.5 : THREE.MathUtils.clamp((i + phase) / denom, 0, 1);
+        const z = THREE.MathUtils.lerp(min, max, t) + (Math.random() - 0.5) * tangentialJitter;
+        const leftX = -halfSize + inset + (Math.random() - 0.5) * radialJitter;
+        const rightX = halfSize - inset + (Math.random() - 0.5) * radialJitter;
+        positions.push(new THREE.Vector3(leftX, -2, z));
+        positions.push(new THREE.Vector3(rightX, -2, THREE.MathUtils.lerp(min, max, t) + (Math.random() - 0.5) * tangentialJitter));
+    }
+
+    for (let i = 1; i < treesPerEdge - 1; i++) {
+        const t = treesPerEdge === 1 ? 0.5 : THREE.MathUtils.clamp((i + phase) / denom, 0, 1);
+        const x = THREE.MathUtils.lerp(min, max, t) + (Math.random() - 0.5) * tangentialJitter;
+        const frontZ = -halfSize + inset + (Math.random() - 0.5) * radialJitter;
+        const backZ = halfSize - inset + (Math.random() - 0.5) * radialJitter;
+        positions.push(new THREE.Vector3(x, -2, frontZ));
+        positions.push(new THREE.Vector3(THREE.MathUtils.lerp(min, max, t) + (Math.random() - 0.5) * tangentialJitter, -2, backZ));
+    }
+
+    return positions;
+}
+
 // ===================== rock ====================
 // Helper: convert a Phong material (from MTL) to a Standard material
 function phongToStandard(mat) {
@@ -300,6 +338,21 @@ rockLoader.load(
                 object.position.set(-10, -2, 0);
                 object.scale.set(0.5, 0.5, 0.5);
                 scene.add(object);
+
+                // create a second rock instance using instancedMesh
+                const rockGeometry = object.children[1].geometry;
+                const rockMaterial = object.children[1].material;
+                const rockCount = 10;
+                const rockMesh = new THREE.InstancedMesh(rockGeometry, rockMaterial, rockCount);
+                const dummy = new THREE.Object3D();
+                for (let i = 0; i < rockCount; i++) {
+                    dummy.position.set(Math.random() * 40 - 20, -2, Math.random() * 40 - 20);
+                    dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+                    dummy.scale.setScalar(.45 + Math.random() * 0.1);
+                    dummy.updateMatrix();
+                    rockMesh.setMatrixAt(i, dummy.matrix);
+                }
+                scene.add(rockMesh);
             },
             undefined,
             (error) => console.error('Error loading rock model:', error)
@@ -309,9 +362,58 @@ rockLoader.load(
     (error) => console.error('Error loading rock materials:', error)
 );
 
+// ==================== TREE ====================
+const treeLoader = new TDSLoader();
+treeLoader.setPath('objs/tree1_3ds/');
+treeLoader.setResourcePath('objs/tree1_3ds/');
+treeLoader.load(
+    'tree1.3ds',
+    (object) => {
+        object.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+        object.position.set(0, -2, 0);
+        object.rotateX(-Math.PI / 2);
+
+        const treeGroup = new THREE.Group();
+        treeGroup.name = 'TreeBorder';
+        scene.add(treeGroup);
+
+        const treeLayers = [
+            { inset: 1.3, phase: 0, tangentialJitter: 0.8, radialJitter: 0.4, scaleRange: [0.85, 1.1] },
+            { inset: 10.0, phase: 0.45, tangentialJitter: 1.1, radialJitter: 0.6, scaleRange: [0.75, 1.0] }
+        ];
+
+        treeLayers.forEach((layer) => {
+            const positions = generateTreeBorderPositions(
+                HALF_GROUND,
+                9,
+                layer.inset,
+                layer.phase,
+                layer.tangentialJitter,
+                layer.radialJitter
+            );
+
+            positions.forEach((position) => {
+                const treeInstance = object.clone(true);
+                treeInstance.position.copy(position);
+                treeInstance.rotation.x = -Math.PI / 2;
+                const scale = THREE.MathUtils.lerp(layer.scaleRange[0], layer.scaleRange[1], Math.random());
+                treeInstance.scale.set(scale, scale, scale);
+                treeGroup.add(treeInstance);
+            });
+        });
+    },
+    undefined,
+    (error) => console.error('Error loading tree model:', error)
+);
+
 // ==================== GROUND ====================
 
-const groundGeometry = new THREE.PlaneGeometry(50, 50, 512, 512);
+const groundGeometry = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 512, 512);
 const groundMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.65,
