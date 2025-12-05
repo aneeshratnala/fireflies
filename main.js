@@ -358,16 +358,142 @@ scene.add(ground);
 // For initial demo, using basic geometry. Can be replaced with OBJ model later
 const jarGroup = new THREE.Group();
 
+// Create procedural frosted glass roughness map
+function createFrostedRoughnessMap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    
+    // Base layer - high value for very rough/frosted base
+    ctx.fillStyle = '#dddddd';
+    ctx.fillRect(0, 0, 512, 512);
+    
+    // Add noise pattern for frosted effect
+    const imageData = ctx.getImageData(0, 0, 512, 512);
+    const data = imageData.data;
+    
+    // Create multi-scale noise for realistic frosted glass
+    for (let y = 0; y < 512; y++) {
+        for (let x = 0; x < 512; x++) {
+            const i = (y * 512 + x) * 4;
+            
+            // Multiple noise frequencies for realistic frost pattern - STRONGER
+            const noise1 = Math.random() * 100 - 50;  // Fine grain (stronger)
+            const noise2 = Math.sin(x * 0.15) * Math.cos(y * 0.15) * 40;  // Medium waves (stronger)
+            const noise3 = Math.sin(x * 0.03 + y * 0.03) * 30;  // Large patterns (stronger)
+            const noise4 = Math.sin(x * 0.08) * Math.sin(y * 0.12) * 25; // Extra texture layer
+            
+            // Combine noise layers
+            const noiseValue = noise1 + noise2 + noise3 + noise4;
+            
+            // Apply noise to RGB channels (grayscale roughness map)
+            const baseValue = 220; // Very high base = very rough/frosted
+            const value = Math.max(150, Math.min(255, baseValue + noiseValue)); // Clamp to high values
+            
+            data[i] = value;     // R
+            data[i + 1] = value; // G
+            data[i + 2] = value; // B
+            // Alpha stays at 255
+        }
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    
+    // Add more circular frost patterns (like ice crystals) - MORE of them
+    ctx.globalCompositeOperation = 'overlay';
+    for (let i = 0; i < 150; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const radius = Math.random() * 40 + 15;
+        
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+        gradient.addColorStop(0.3, 'rgba(240, 240, 255, 0.4)');
+        gradient.addColorStop(0.6, 'rgba(220, 220, 240, 0.3)');
+        gradient.addColorStop(1, 'rgba(200, 200, 220, 0)');
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Add streaky frost lines
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 80; i++) {
+        const x1 = Math.random() * 512;
+        const y1 = Math.random() * 512;
+        const angle = Math.random() * Math.PI * 2;
+        const length = Math.random() * 60 + 20;
+        const x2 = x1 + Math.cos(angle) * length;
+        const y2 = y1 + Math.sin(angle) * length;
+        
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(3, 3); // More tiling for denser frost pattern
+    return texture;
+}
+
+const frostedRoughnessMap = createFrostedRoughnessMap();
+
+// Jar state for frosted glass
+let jarFrosted = false;
+
 // Jar body (cylinder)
 const jarGeometry = new THREE.CylinderGeometry(2, 2, 4, 32);
-const jarMaterial = new THREE.MeshPhongMaterial({
-    color: 0xf0f0f0,
+const jarMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
     transparent: true,
-    opacity: 0.7,
-    shininess: 100,
+    opacity: 0.3,
+    transmission: 0.9,       // High transmission for glass-like transparency
+    thickness: 0.5,          // Glass thickness for refraction
+    roughness: 0.05,         // Very smooth glass (clear state)
+    metalness: 0.0,
+    ior: 1.5,                // Index of refraction (glass is ~1.5)
+    envMapIntensity: 1.0,
     side: THREE.DoubleSide
 });
 const jarBody = new THREE.Mesh(jarGeometry, jarMaterial);
+
+// Function to toggle frosted glass effect
+function toggleFrostedGlass() {
+    jarFrosted = !jarFrosted;
+    
+    if (jarFrosted) {
+        // Frosted glass - apply roughness map and increase roughness
+        jarMaterial.roughnessMap = frostedRoughnessMap;
+        jarMaterial.roughness = 1.0;          // Maximum roughness
+        jarMaterial.transmission = 0.3;       // Much less transmission (very diffuse)
+        jarMaterial.opacity = 0.7;            // More opaque
+        jarMaterial.thickness = 1.5;          // Thicker for more scattering
+        jarMaterial.attenuationColor = new THREE.Color(0xeeeeff); // Light scattering tint
+        jarMaterial.attenuationDistance = 0.5; // Short distance for more scattering
+        jarMaterial.color.setHex(0xf0f5ff);   // Stronger blue-white tint
+        console.log('🧊 Jar is now FROSTED');
+    } else {
+        // Clear glass - remove roughness map
+        jarMaterial.roughnessMap = null;
+        jarMaterial.roughness = 0.05;         // Very smooth
+        jarMaterial.transmission = 0.9;       // High transmission
+        jarMaterial.opacity = 0.3;            // More transparent
+        jarMaterial.thickness = 0.5;          // Normal thickness
+        jarMaterial.attenuationColor = new THREE.Color(0xffffff);
+        jarMaterial.attenuationDistance = Infinity; // No attenuation
+        jarMaterial.color.setHex(0xffffff);   // Pure white
+        console.log('✨ Jar is now CLEAR');
+    }
+    
+    jarMaterial.needsUpdate = true;
+}
 jarBody.position.y = 0;
 jarBody.castShadow = true;
 jarBody.receiveShadow = true;
@@ -1003,6 +1129,9 @@ function onKeyDown(event) {
         case 'r': // Reset
             resetSimulation();
             break;
+        case 'f': // Toggle frosted glass
+            toggleFrostedGlass();
+            break;
     }
 }
 
@@ -1287,7 +1416,7 @@ function loadJarModel(path) {
 
 console.log('Fireflies simulation initialized!');
 console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
-console.log('Controls: Click canvas to lock pointer, move mouse to look, click while locked to poke, Spacebar to open jar, R to reset, Esc to unlock pointer');
-console.log('Movement: W/A/S/D to move camera, T to go up, B to go down');
+console.log('Controls: Click canvas to lock pointer, move mouse to look, click while locked to poke, Spacebar to open jar, R to reset, F to toggle frosted glass, Esc to unlock pointer');
+console.log('Movement: W/A/S/D to move camera, Q to go up, E to go down');
 console.log('Catch fireflies by moving the camera close to them!');
 
