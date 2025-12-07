@@ -26,14 +26,14 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// Color management
+// color management
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.6; // <--- lower = darker HDRI (start around 0.6–0.8)
+renderer.toneMappingExposure = 0.6; // lower = darker hdri
 
 // ==================== ENVIRONMENT / HDRI ====================
 
-// Create PMREM generator once
+// create pmrem generator once
 const pmremGenerator = new THREE.PMREMGenerator(renderer);
 pmremGenerator.compileEquirectangularShader();
 
@@ -43,22 +43,15 @@ exrLoader.setDataType(THREE.FloatType);
 exrLoader.load(
   'hdris/rogland_clear_night_2k.exr',
   (texture) => {
-    // Use original EXR as background (visible HDRI)
+    // use original exr as background
     texture.mapping = THREE.EquirectangularReflectionMapping;
     scene.background = texture;
 
-    // Create prefiltered env map for PBR lighting
+    // create prefiltered env map for pbr lighting
     const envRT = pmremGenerator.fromEquirectangular(texture);
     const envMap = envRT.texture;
 
-    scene.environment = envMap; // this makes the HDRI a light source
-
-    // Optional: tweak lighting strength per material later via envMapIntensity
-
-    // Clean up only the render target, keep `texture` for background
-    // envRT and pmremGenerator can be disposed once you don't need more env maps:
-    // envRT.dispose();
-    // pmremGenerator.dispose();
+    scene.environment = envMap; // this makes the hdri a light source
   },
   undefined,
   (err) => {
@@ -69,46 +62,45 @@ exrLoader.load(
 // ==================== POST-PROCESSING (BLOOM) ====================
 const composer = new EffectComposer(renderer);
 
-// RenderPass renders the scene normally first
+// renderpass renders the scene normally first
 const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 
-// UnrealBloomPass creates the glowing effect
+// unrealbloompass creates the glowing effect
 const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.5,    // strength - intensity of the bloom (increased)
+    1.5,    // strength - intensity of the bloom
     0.5,    // radius - how far the bloom spreads
     0.85     // threshold - lowered so fireflies bloom even through glass
 );
 composer.addPass(bloomPass);
-// Camera controls (Drag-to-look style)
-// Custom implementation for press-and-hold to rotate camera
+// camera controls - drag to look
 let isDragging = false;
 let previousMouseX = 0;
 let previousMouseY = 0;
 const MOUSE_SENSITIVITY = 0.002;
 
-// Euler angles for camera rotation
+// euler angles for camera rotation
 const cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 cameraEuler.setFromQuaternion(camera.quaternion);
 
-// Add camera to scene so its children (tongue) are rendered
+// add camera to scene so its children are rendered
 scene.add(camera);
 
 // ==================== TONGUE ====================
 let tongueProgress = 0; // 0 = hidden, 1 = fully extended
-const TONGUE_EXTEND_SPEED = 8.0; // How fast tongue extends (quick snap out)
-const TONGUE_RETRACT_SPEED = 4.0; // How fast tongue retracts
-const TONGUE_HOLD_TIME = 0.15; // Time to hold tongue at full extension
+const TONGUE_EXTEND_SPEED = 8.0; // how fast tongue extends
+const TONGUE_RETRACT_SPEED = 4.0; // how fast tongue retracts
+const TONGUE_HOLD_TIME = 0.15; // time to hold tongue at full extension
 let tongueHoldTimer = 0;
 let tongueState = 'hidden'; // 'hidden', 'extending', 'holding', 'retracting'
 
-// Create a smooth procedural tongue shape
+// create a smooth procedural tongue shape
 const tongueGroup = new THREE.Group();
 
-// Create tongue using a more organic shape - LatheGeometry for smooth rounded tongue
+// create tongue using lathegeometry for smooth rounded shape
 const tonguePoints = [];
-// Create a tongue profile (side view) - starts thick, tapers to rounded tip
+// tongue profile - starts thick, tapers to rounded tip
 tonguePoints.push(new THREE.Vector2(0, 0));        // tip (center)
 tonguePoints.push(new THREE.Vector2(0.06, 0.05));  // tip curve
 tonguePoints.push(new THREE.Vector2(0.10, 0.15));  // middle
@@ -119,18 +111,18 @@ tonguePoints.push(new THREE.Vector2(0, 0.70));     // back center
 
 const tongueGeometry = new THREE.LatheGeometry(tonguePoints, 32);
 const tongueMaterial = new THREE.MeshStandardMaterial({
-    color: 0xff5566,      // Pink-red tongue color
+    color: 0xff5566,      // pink-red tongue color
     roughness: 0.6,
     metalness: 0.0,
     side: THREE.DoubleSide
 });
 
 const tongueMesh = new THREE.Mesh(tongueGeometry, tongueMaterial);
-tongueMesh.rotation.x = -Math.PI / 2; // Point forward
+tongueMesh.rotation.x = -Math.PI / 2; // point forward
 tongueMesh.position.z = 0;
 tongueGroup.add(tongueMesh);
 
-// Add a slight highlight/wet look with a second layer
+// add a slight highlight/wet look with a second layer
 const tongueHighlightMaterial = new THREE.MeshStandardMaterial({
     color: 0xff7788,
     roughness: 0.3,
@@ -141,7 +133,7 @@ const tongueHighlightMaterial = new THREE.MeshStandardMaterial({
 });
 const tongueHighlight = new THREE.Mesh(tongueGeometry.clone(), tongueHighlightMaterial);
 tongueHighlight.rotation.x = -Math.PI / 2;
-tongueHighlight.scale.set(1.02, 1.02, 1.02); // Slightly larger
+tongueHighlight.scale.set(1.02, 1.02, 1.02); // slightly larger
 tongueGroup.add(tongueHighlight);
 
 tongueGroup.visible = false;
@@ -149,7 +141,6 @@ camera.add(tongueGroup);
 
 console.log('👅 Procedural tongue created and added to camera');
 
-// Function to trigger tongue animation
 function triggerTongueAnimation() {
     if (tongueState === 'hidden') {
         console.log('🦎 Tongue animation triggered!');
@@ -159,7 +150,6 @@ function triggerTongueAnimation() {
     }
 }
 
-// Function to update tongue animation
 function updateTongueAnimation(deltaTime) {
     if (tongueState === 'hidden') return;
     
@@ -190,31 +180,28 @@ function updateTongueAnimation(deltaTime) {
             break;
     }
     
-    // Ease function for smooth animation
+    // ease function for smooth animation
     const easedProgress = tongueState === 'extending' 
         ? easeOutBack(tongueProgress) 
         : easeInQuad(tongueProgress);
     
-    // Position tongue in camera space (attached to camera, so moves with it):
-    // X: 0 (centered horizontally)
-    // Y: slightly below center (like coming from mouth)
-    // Z: negative = in front of camera
-    const extendDistance = 0.5 * easedProgress; // How far tongue extends forward
+    // position tongue in camera space - attached to camera so moves with it
+    const extendDistance = 0.5 * easedProgress; // how far tongue extends forward
     
-    // Scale the tongue - stretches forward as it extends
+    // scale the tongue - stretches forward as it extends
     const baseScale = 0.6;
     tongueGroup.scale.set(
         baseScale,
-        baseScale * (1 + 0.5 * easedProgress), // Stretch longer as it extends
+        baseScale * (1 + 0.5 * easedProgress), // stretch longer as it extends
         baseScale
     );
     
-    // Position: centered, slightly below eye level, extends forward
+    // position - centered, slightly below eye level, extends forward
     tongueGroup.position.set(0, -0.15, -0.4 - extendDistance);
     tongueGroup.rotation.set(0, 0, 0);
 }
 
-// Easing functions for smooth animation
+// easing functions
 function easeOutBack(t) {
     const c1 = 1.70158;
     const c3 = c1 + 1;
@@ -226,11 +213,11 @@ function easeInQuad(t) {
 }
 
 // ==================== LIGHTING ====================
-// Dim ambient for night-time atmosphere
+// dim ambient for night-time atmosphere
 const ambientLight = new THREE.AmbientLight(0x101020, 0.3);
 scene.add(ambientLight);
 
-// Moonlight - very dim directional light
+// moonlight - very dim directional light
 const directionalLight = new THREE.DirectionalLight(0xd3ddf0, 0.9);
 directionalLight.position.set(5, 10, 5);
 directionalLight.castShadow = true;
@@ -245,7 +232,7 @@ directionalLight.shadow.camera.far = 50;
 
 scene.add(directionalLight);
 
-// Shared sizing helpers so vegetation aligns with the ground plane
+// shared sizing helpers so vegetation aligns with the ground plane
 const GROUND_SIZE = 70;
 const HALF_GROUND = GROUND_SIZE / 2;
 
@@ -284,10 +271,10 @@ function generateTreeBorderPositions(
 }
 
 // ===================== rock ====================
-// Helper: convert a Phong material (from MTL) to a Standard material
+// helper - convert phong material to standard material
 function phongToStandard(mat) {
     const std = new THREE.MeshStandardMaterial({
-        color: mat.color.clone ? mat.color.clone() : mat.color,  // base color
+        color: mat.color.clone ? mat.color.clone() : mat.color,
         map: mat.map || null,
         normalMap: mat.normalMap || null,
         emissive: mat.emissive ? mat.emissive.clone() : new THREE.Color(0x000000),
@@ -299,7 +286,7 @@ function phongToStandard(mat) {
         roughness: 0.9
     });
 
-    // Ensure color textures use sRGB
+    // ensure color textures use srgb
     if (std.map) {
         std.map.encoding = THREE.sRGBEncoding;
         std.map.needsUpdate = true;
@@ -309,14 +296,13 @@ function phongToStandard(mat) {
         std.emissiveMap.needsUpdate = true;
     }
 
-    // Hook into environment lighting if you want
     std.envMap = scene.environment || null;
-    std.envMapIntensity = 1.0;  // tweak as needed
+    std.envMapIntensity = 1.0;
 
     return std;
 }
 
-// import rock from obj file and mtl file
+// import rock from obj and mtl files
 const rockLoader = new MTLLoader();
 rockLoader.load(
     'objs/rock/Rock1.mtl',
@@ -346,7 +332,7 @@ rockLoader.load(
                 object.scale.set(0.5, 0.5, 0.5);
                 scene.add(object);
 
-                // create a second rock instance using instancedMesh
+                // create second rock instance using instancedmesh
                 const rockGeometry = object.children[1].geometry;
                 const rockMaterial = object.children[1].material;
                 const rockCount = 10;
@@ -427,15 +413,15 @@ const groundMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.65,
     metalness: 0.0,
-    side: THREE.DoubleSide // Make both sides visible (uncull bottom)
+    side: THREE.DoubleSide // make both sides visible
 });
 
 const loader = new THREE.TextureLoader();
-// correct paths (textures are at `textures/`)
+// correct paths - textures are at `textures/`
 const dispPath = 'textures/gravelly_sand_4k.blend/textures/gravelly_sand_disp_4k.png';
 const colorPath = 'textures/gravelly_sand_4k.blend/textures/gravelly_sand_diff_4k.jpg';
 
-// load displacement/bump (height) texture
+// load displacement/bump texture
 loader.load(
     dispPath,
     (tex) => {
@@ -445,7 +431,7 @@ loader.load(
         tex.encoding = THREE.LinearEncoding;
         tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
         groundMaterial.displacementMap = tex;
-        groundMaterial.bumpMap = tex; // also use as bump for extra normal detail
+        groundMaterial.bumpMap = tex; // also use as bump for extra detail
         groundMaterial.bumpScale = 0.5;
         groundMaterial.displacementScale = 0.8;
         groundMaterial.needsUpdate = true;
@@ -454,7 +440,7 @@ loader.load(
     (err) => console.warn('Failed to load displacement texture:', dispPath, err)
 );
 
-// load color (albedo) texture
+// load color texture
 loader.load(
     colorPath,
     (tex) => {
@@ -476,52 +462,50 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 // ==================== MASON JAR ====================
-// For initial demo, using basic geometry. Can be replaced with OBJ model later
 const jarGroup = new THREE.Group();
 
-// Create procedural frosted glass roughness map
+// create procedural frosted glass roughness map
 function createFrostedRoughnessMap() {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
     
-    // Base layer - high value for very rough/frosted base
+    // base layer - high value for very rough/frosted base
     ctx.fillStyle = '#dddddd';
     ctx.fillRect(0, 0, 512, 512);
     
-    // Add noise pattern for frosted effect
+    // add noise pattern for frosted effect
     const imageData = ctx.getImageData(0, 0, 512, 512);
     const data = imageData.data;
     
-    // Create multi-scale noise for realistic frosted glass
+    // create multi-scale noise for realistic frosted glass
     for (let y = 0; y < 512; y++) {
         for (let x = 0; x < 512; x++) {
             const i = (y * 512 + x) * 4;
             
-            // Multiple noise frequencies for realistic frost pattern - STRONGER
-            const noise1 = Math.random() * 100 - 50;  // Fine grain (stronger)
-            const noise2 = Math.sin(x * 0.15) * Math.cos(y * 0.15) * 40;  // Medium waves (stronger)
-            const noise3 = Math.sin(x * 0.03 + y * 0.03) * 30;  // Large patterns (stronger)
-            const noise4 = Math.sin(x * 0.08) * Math.sin(y * 0.12) * 25; // Extra texture layer
+            // multiple noise frequencies for realistic frost pattern
+            const noise1 = Math.random() * 100 - 50;
+            const noise2 = Math.sin(x * 0.15) * Math.cos(y * 0.15) * 40;
+            const noise3 = Math.sin(x * 0.03 + y * 0.03) * 30;
+            const noise4 = Math.sin(x * 0.08) * Math.sin(y * 0.12) * 25;
             
-            // Combine noise layers
+            // combine noise layers
             const noiseValue = noise1 + noise2 + noise3 + noise4;
             
-            // Apply noise to RGB channels (grayscale roughness map)
-            const baseValue = 220; // Very high base = very rough/frosted
-            const value = Math.max(150, Math.min(255, baseValue + noiseValue)); // Clamp to high values
+            // apply noise to rgb channels
+            const baseValue = 220; // very high base = very rough/frosted
+            const value = Math.max(150, Math.min(255, baseValue + noiseValue));
             
-            data[i] = value;     // R
-            data[i + 1] = value; // G
-            data[i + 2] = value; // B
-            // Alpha stays at 255
+            data[i] = value;
+            data[i + 1] = value;
+            data[i + 2] = value;
         }
     }
     
     ctx.putImageData(imageData, 0, 0);
     
-    // Add more circular frost patterns (like ice crystals) - MORE of them
+    // add more circular frost patterns - like ice crystals
     ctx.globalCompositeOperation = 'overlay';
     for (let i = 0; i < 150; i++) {
         const x = Math.random() * 512;
@@ -540,7 +524,7 @@ function createFrostedRoughnessMap() {
         ctx.fill();
     }
     
-    // Add streaky frost lines
+    // add streaky frost lines
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 2;
@@ -560,16 +544,16 @@ function createFrostedRoughnessMap() {
     
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(3, 3); // More tiling for denser frost pattern
+    texture.repeat.set(3, 3); // more tiling for denser frost pattern
     return texture;
 }
 
 const frostedRoughnessMap = createFrostedRoughnessMap();
 
-// Jar state for frosted glass
+// jar state for frosted glass
 let jarFrosted = false;
 
-// Jar body (cylinder)
+// jar body - cylinder
 const jarGeometry = new THREE.CylinderGeometry(2, 2, 4, 32);
 const jarMaterial = new THREE.MeshPhongMaterial({
     color: 0xaaddff,
@@ -581,18 +565,17 @@ const jarMaterial = new THREE.MeshPhongMaterial({
 });
 const jarBody = new THREE.Mesh(jarGeometry, jarMaterial);
 
-// Function to toggle frosted glass effect
 function toggleFrostedGlass() {
     jarFrosted = !jarFrosted;
     
     if (jarFrosted) {
-        // Frosted glass - more opaque, less shiny
+        // frosted glass - more opaque, less shiny
         jarMaterial.opacity = 0.6;
         jarMaterial.shininess = 20;
         jarMaterial.color.setHex(0xddeeff);
         console.log('🧊 Jar is now FROSTED');
     } else {
-        // Clear glass
+        // clear glass
         jarMaterial.opacity = 0.25;
         jarMaterial.shininess = 100;
         jarMaterial.color.setHex(0xaaddff);
@@ -606,7 +589,7 @@ jarBody.castShadow = true;
 jarBody.receiveShadow = true;
 jarGroup.add(jarBody);
 
-// Jar lid (cylinder)
+// jar lid - cylinder
 const lidGeometry = new THREE.CylinderGeometry(2.1, 2.1, 0.3, 32);
 const lidMaterial = new THREE.MeshPhongMaterial({
     color: 0x888888,
@@ -620,7 +603,7 @@ jarGroup.add(jarLid);
 jarGroup.position.set(0, 0, 0);
 scene.add(jarGroup);
 
-// Jar state
+// jar state
 let jarOpen = false;
 let lidRotation = 0;
 const LID_OPEN_ANGLE = Math.PI / 2; // 90 degrees
@@ -630,49 +613,49 @@ const FIREFLY_COUNT = 100;
 const fireflies = [];
 const fireflyVelocities = [];
 const fireflyPositions = [];
-const fireflyMaterials = []; // Individual materials for each firefly
+const fireflyMaterials = []; // individual materials for each firefly
 
-// Kuramoto model parameters for synchronization
+// kuramoto model parameters for synchronization
 const KURAMOTO_CONFIG = {
-    couplingStrength: 2.0,     // K - how strongly fireflies influence each other
-    couplingRadius: 2.5,       // Only couple with nearby fireflies (local coupling)
-    baseFrequency: 1.5,        // Base angular frequency (radians per second) - slower for more visible pulses
-    frequencyVariance: 0.3,    // Variance in natural frequencies
-    brightnessThreshold: -0.3, // sin(phase) threshold for "on" state (gives ~60% on time)
-    minBrightness: 0.5,        // Minimum glow when "off" - visible yellow dot
-    maxBrightness: 2.0         // Maximum glow when "on" (brighter for bloom effect)
+    couplingStrength: 2.0,     // k - how strongly fireflies influence each other
+    couplingRadius: 2.5,       // only couple with nearby fireflies
+    baseFrequency: 1.5,        // base angular frequency - slower for more visible pulses
+    frequencyVariance: 0.3,    // variance in natural frequencies
+    brightnessThreshold: -0.3, // sin(phase) threshold for "on" state
+    minBrightness: 0.5,        // minimum glow when "off" - visible yellow dot
+    maxBrightness: 2.0         // maximum glow when "on" - brighter for bloom effect
 };
 
-// Kuramoto state for each firefly
-const fireflyPhases = [];      // Current phase (0 to 2π)
-const fireflyFrequencies = []; // Natural frequency of each firefly
+// kuramoto state for each firefly
+const fireflyPhases = [];      // current phase (0 to 2π)
+const fireflyFrequencies = []; // natural frequency of each firefly
 
-// Boids parameters
+// boids parameters
 const BOIDS_CONFIG = {
-    separationDistance: 0.5,  // Distance to maintain from neighbors
-    alignmentDistance: 1.5,   // Distance to align with neighbors
-    cohesionDistance: 2.0,    // Distance to move toward neighbors
+    separationDistance: 0.5,  // distance to maintain from neighbors
+    alignmentDistance: 1.5,   // distance to align with neighbors
+    cohesionDistance: 2.0,    // distance to move toward neighbors
     separationWeight: 1.5,
     alignmentWeight: 1.0,
     cohesionWeight: 1.2,
     maxSpeed: 0.1,
     maxForce: 0.05,
-    jarRadius: 1.8,           // Radius of jar (slightly smaller than visual)
-    jarHeight: 3.5,           // Height of jar
+    jarRadius: 1.8,           // radius of jar - slightly smaller than visual
+    jarHeight: 3.5,           // height of jar
     jarCenter: new THREE.Vector3(0, 0, 0)
 };
 
-// Create firefly geometry (smaller core)
+// create firefly geometry - smaller core
 const fireflyGeometry = new THREE.SphereGeometry(0.03, 8, 8);
 
-// Create glow sprite texture procedurally
+// create glow sprite texture procedurally
 function createGlowTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
     
-    // Create radial gradient for soft glow
+    // create radial gradient for soft glow
     const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
     gradient.addColorStop(0, 'rgba(255, 255, 200, 1)');
     gradient.addColorStop(0.2, 'rgba(255, 240, 100, 0.8)');
@@ -689,14 +672,14 @@ function createGlowTexture() {
 
 const glowTexture = createGlowTexture();
 
-// Arrays for glow sprites and point lights
+// arrays for glow sprites and point lights
 const fireflyGlowSprites = [];
 const fireflyPointLights = [];
-const LIGHTS_COUNT = 15; // Only add point lights to some fireflies for performance
+const LIGHTS_COUNT = 15; // only add point lights to some fireflies for performance
 
 // initialize fireflies inside the jar
 for (let i = 0; i < FIREFLY_COUNT; i++) {
-    // Create individual material for each firefly so they can have different brightness
+    // create individual material for each firefly so they can have different brightness
     const material = new THREE.MeshBasicMaterial({
         color: 0xffffaa,
         transparent: true,
@@ -704,14 +687,14 @@ for (let i = 0; i < FIREFLY_COUNT; i++) {
     });
     fireflyMaterials.push(material);
     
-    // Create firefly group to hold core + glow
+    // create firefly group to hold core + glow
     const fireflyGroup = new THREE.Group();
     
-    // Core (small bright center)
+    // core - small bright center
     const core = new THREE.Mesh(fireflyGeometry, material);
     fireflyGroup.add(core);
     
-    // Glow sprite (additive blending for light emission effect)
+    // glow sprite - additive blending for light emission effect
     const glowMaterial = new THREE.SpriteMaterial({
         map: glowTexture,
         color: 0xccff66,
@@ -725,7 +708,7 @@ for (let i = 0; i < FIREFLY_COUNT; i++) {
     fireflyGroup.add(glowSprite);
     fireflyGlowSprites.push(glowSprite);
     
-    // Add point light to some fireflies for actual scene illumination
+    // add point light to some fireflies for actual scene illumination
     if (i < LIGHTS_COUNT) {
         const pointLight = new THREE.PointLight(0xccff66, 0.3, 2.0, 2);
         fireflyGroup.add(pointLight);
@@ -734,7 +717,7 @@ for (let i = 0; i < FIREFLY_COUNT; i++) {
         fireflyPointLights.push(null);
     }
     
-    // random position inside jar (cylinder)
+    // random position inside jar - cylinder
     const angle = Math.random() * Math.PI * 2;
     const radius = Math.random() * BOIDS_CONFIG.jarRadius * 0.8;
     const height = (Math.random() - 0.5) * BOIDS_CONFIG.jarHeight * 0.8;
@@ -745,17 +728,17 @@ for (let i = 0; i < FIREFLY_COUNT; i++) {
         Math.sin(angle) * radius
     );
     
-    // Random initial velocity
+    // random initial velocity
     const velocity = new THREE.Vector3(
         (Math.random() - 0.5) * 0.05,
         (Math.random() - 0.5) * 0.05,
         (Math.random() - 0.5) * 0.05
     );
     
-    // Initialize Kuramoto state
-    // Random initial phase (spread across the cycle)
+    // initialize kuramoto state
+    // random initial phase - spread across the cycle
     fireflyPhases.push(Math.random() * Math.PI * 2);
-    // Natural frequency with some variance (creates diversity)
+    // natural frequency with some variance - creates diversity
     fireflyFrequencies.push(
         KURAMOTO_CONFIG.baseFrequency + 
         (Math.random() - 0.5) * 2 * KURAMOTO_CONFIG.frequencyVariance
@@ -786,7 +769,7 @@ function separation(fireflyIndex, radius = BOIDS_CONFIG.separationDistance) {
         
         const distance = pos.distanceTo(fireflies[i].position);
         
-        // Use the passed 'radius' instead of the constant
+        // use the passed 'radius' instead of the constant
         if (distance < radius && distance > 0) {
             const diff = new THREE.Vector3().subVectors(pos, fireflies[i].position);
             diff.normalize();
@@ -868,18 +851,17 @@ function applyJarBoundary(fireflyIndex) {
     // Config
     const r = BOIDS_CONFIG.jarRadius;
     const h = BOIDS_CONFIG.jarHeight / 2; // ~1.75
-    const GROUND_LEVEL = -1.9; // Just above the visual floor (-2.0)
+    const GROUND_LEVEL = -1.9; // just above the visual floor
 
-    // ================= 1. GLOBAL FLOOR =================
-    // This applies whether they are inside OR outside the jar
+    // global floor - applies whether inside or outside the jar
     if (pos.y < GROUND_LEVEL) {
-        pos.y = GROUND_LEVEL; // Hard stop
+        pos.y = GROUND_LEVEL; // hard stop
         if (vel.y < 0) {
-            vel.y *= -0.5; // Bounce off the ground
+            vel.y *= -0.5; // bounce off the ground
         }
     }
 
-    // ================= 2. LID (Only if closed) =================
+    // lid - only if closed
     if (!jarOpen) {
         if (pos.y > h) {
             pos.y = h - 0.01;
@@ -887,35 +869,34 @@ function applyJarBoundary(fireflyIndex) {
         }
     }
 
-    // ================= 3. GLASS WALLS =================
+    // glass walls
     const distSq = pos.x * pos.x + pos.z * pos.z;
     
-    // Are we outside the glass radius?
+    // are we outside the glass radius?
     if (distSq > r * r) {
-        // We are allowed outside if: Jar is OPEN AND we are ABOVE the rim
+        // we are allowed outside if jar is open and we are above the rim
         const isAboveRim = pos.y > h;
         const canEscape = jarOpen && isAboveRim;
 
         if (!canEscape) {
-            // We are trapped. Calculate physics to bounce off the glass.
-            
+            // we are trapped - calculate physics to bounce off the glass
             const dist = Math.sqrt(distSq);
-            // 1. Teleport to surface (Hard Clamp)
+            // teleport to surface - hard clamp
             const correctionScale = (r - 0.01) / dist; 
             pos.x *= correctionScale;
             pos.z *= correctionScale;
 
-            // 2. Reflect Velocity
+            // reflect velocity
             const normalX = pos.x / dist;
             const normalZ = pos.z / dist;
             const vDotN = (vel.x * normalX) + (vel.z * normalZ);
             
-            // Only bounce if heading outward
+            // only bounce if heading outward
             if (vDotN > 0) {
                 vel.x -= 2 * vDotN * normalX;
                 vel.z -= 2 * vDotN * normalZ;
                 
-                // Friction
+                // friction
                 vel.x *= 0.5;
                 vel.z *= 0.5;
             }
@@ -923,23 +904,23 @@ function applyJarBoundary(fireflyIndex) {
     }
 }
 function wander(fireflyIndex) {
-    // Create a random vector
+    // create a random vector
     const noise = new THREE.Vector3(
         Math.random() - 0.5,
         Math.random() - 0.5,
         Math.random() - 0.5
     );
     
-    // Normalize and scale it
+    // normalize and scale it
     noise.normalize().multiplyScalar(BOIDS_CONFIG.maxSpeed);
     
-    // Steer towards this random point
+    // steer towards this random point
     const steer = new THREE.Vector3().subVectors(noise, fireflyVelocities[fireflyIndex]);
     
-    // Limit the turning speed so they don't jitter
+    // limit the turning speed so they don't jitter
     limit(steer, BOIDS_CONFIG.maxForce);
     
-    // Multiply by a weight (stronger means more erratic movement)
+    // multiply by a weight - stronger means more erratic movement
     return steer.multiplyScalar(0.5); 
 }
 
@@ -948,11 +929,8 @@ function updateBoids() {
     const MAX_BURST_MULTIPLIER = 8.0;
 
     for (let i = 0; i < fireflies.length; i++) {
-        // === 1. DETERMINE FLOCKING STATE ===
-        
-        // SEPARATION RADIUS
-        // Open: 6.0 (Target: Spread across screen)
-        // Closed: 0.5 (Target: Tight ball)
+        // determine flocking state
+        // separation radius - open: 6.0 (spread across screen), closed: 0.5 (tight ball)
         const sepRadius = jarOpen ? 6.0 : BOIDS_CONFIG.separationDistance;
         
         const sep = separation(i, sepRadius);
@@ -963,7 +941,7 @@ function updateBoids() {
 
         let currentSpeedLimit = BOIDS_CONFIG.maxSpeed;
         
-        // === 2. CALCULATE POKE INTERACTION ===
+        // calculate poke interaction
         let flockingStrength = 1.0; 
         
         if (pokePosition) {
@@ -979,37 +957,33 @@ function updateBoids() {
             }
         }
 
-        // === 3. APPLY FORCES ===
+        // apply forces
         
-        // Apply Repulsion (Poke)
+        // apply repulsion - poke
         if (pokePosition) fireflyVelocities[i].add(rep);
 
-        // Apply Separation
-        // CHANGE: When jar is open, we multiply by 0.1 instead of 2.0.
-        // This is the "Trickle" factor. They feel the pressure to leave, but they act on it very slowly.
+        // apply separation - when jar is open, multiply by 0.1 instead of 1.0
+        // trickle factor - they feel the pressure to leave but act on it slowly
         fireflyVelocities[i].add(sep.multiplyScalar(jarOpen ? 0.1 : 1.0));
 
         if (jarOpen) {
-            // === OPEN JAR (Slow Diffusion) ===
-            
-            // 1. Tiny Cohesion (Requested)
-            // Keeps them vaguely related to each other, preventing total isolation.
+            // open jar - slow diffusion
+            // tiny cohesion - keeps them vaguely related, preventing total isolation
             fireflyVelocities[i].add(coh.multiplyScalar(0.1 * flockingStrength));
 
-            // 2. Weak Alignment
+            // weak alignment
             fireflyVelocities[i].add(ali.multiplyScalar(0.1 * flockingStrength));
 
-            // 3. Gentle Wander
-            // Reduced to 0.5 to prevent them from zooming around too fast.
+            // gentle wander - reduced to 0.5 to prevent zooming around too fast
             fireflyVelocities[i].add(wan.multiplyScalar(0.5));
 
         } else {
-            // === CLOSED JAR (Swarm) ===
+            // closed jar - swarm
             fireflyVelocities[i].add(ali.multiplyScalar(flockingStrength));
             fireflyVelocities[i].add(coh.multiplyScalar(flockingStrength));
         }
 
-        // === 4. LIMITS ===
+        // limits
         applyJarBoundary(i);
         limit(fireflyVelocities[i], currentSpeedLimit);
         
@@ -1018,13 +992,12 @@ function updateBoids() {
 }
 
 // ==================== KURAMOTO MODEL ====================
-// Updates firefly phases and brightness based on the Kuramoto model
-// dθᵢ/dt = ωᵢ + (K/N_neighbors) * Σⱼ sin(θⱼ - θᵢ)
+// updates firefly phases and brightness based on the kuramoto model
 function updateKuramoto(deltaTime) {
     const K = KURAMOTO_CONFIG.couplingStrength;
     const radius = KURAMOTO_CONFIG.couplingRadius;
     
-    // Calculate phase derivatives for all fireflies
+    // calculate phase derivatives for all fireflies
     const phaseDerivatives = [];
     
     for (let i = 0; i < fireflies.length; i++) {
@@ -1032,10 +1005,10 @@ function updateKuramoto(deltaTime) {
         const phase_i = fireflyPhases[i];
         const omega_i = fireflyFrequencies[i];
         
-        // Start with natural frequency
+        // start with natural frequency
         let dPhase = omega_i;
         
-        // Sum coupling influence from nearby fireflies (local Kuramoto)
+        // sum coupling influence from nearby fireflies - local kuramoto
         let neighborCount = 0;
         let couplingSum = 0;
         
@@ -1044,16 +1017,16 @@ function updateKuramoto(deltaTime) {
             
             const distance = pos_i.distanceTo(fireflies[j].position);
             
-            // Only couple with nearby fireflies
+            // only couple with nearby fireflies
             if (distance < radius) {
                 const phase_j = fireflyPhases[j];
-                // Kuramoto coupling term: sin(θⱼ - θᵢ)
+                // kuramoto coupling term - sin(θⱼ - θᵢ)
                 couplingSum += Math.sin(phase_j - phase_i);
                 neighborCount++;
             }
         }
         
-        // Add coupling influence (normalized by neighbor count)
+        // add coupling influence - normalized by neighbor count
         if (neighborCount > 0) {
             dPhase += (K / neighborCount) * couplingSum;
         }
@@ -1061,12 +1034,12 @@ function updateKuramoto(deltaTime) {
         phaseDerivatives.push(dPhase);
     }
     
-    // Update phases and brightness
+    // update phases and brightness
     for (let i = 0; i < fireflies.length; i++) {
-        // Update phase (Euler integration)
+        // update phase - euler integration
         fireflyPhases[i] += phaseDerivatives[i] * deltaTime;
         
-        // Keep phase in [0, 2π]
+        // keep phase in [0, 2π]
         while (fireflyPhases[i] > Math.PI * 2) {
             fireflyPhases[i] -= Math.PI * 2;
         }
@@ -1074,68 +1047,68 @@ function updateKuramoto(deltaTime) {
             fireflyPhases[i] += Math.PI * 2;
         }
         
-        // Calculate brightness based on phase
-        // Using sin(phase) with a threshold to ensure ~50%+ are on
+        // calculate brightness based on phase
+        // using sin(phase) with a threshold to ensure ~50%+ are on
         const sinPhase = Math.sin(fireflyPhases[i]);
         
         let brightness;
         if (sinPhase > KURAMOTO_CONFIG.brightnessThreshold) {
-            // Firefly is "on" - map from threshold to 1 -> minBrightness to maxBrightness
+            // firefly is "on" - map from threshold to 1 -> minBrightness to maxBrightness
             const normalized = (sinPhase - KURAMOTO_CONFIG.brightnessThreshold) / 
                              (1 - KURAMOTO_CONFIG.brightnessThreshold);
             brightness = KURAMOTO_CONFIG.minBrightness + 
                         normalized * (KURAMOTO_CONFIG.maxBrightness - KURAMOTO_CONFIG.minBrightness);
         } else {
-            // Firefly is "off" - very dim glow
+            // firefly is "off" - very dim glow
             brightness = KURAMOTO_CONFIG.minBrightness;
         }
         
-        // Check if firefly is inside or outside the jar
+        // check if firefly is inside or outside the jar
         const fireflyPos = fireflies[i].position;
         const horizontalDistSq = fireflyPos.x * fireflyPos.x + fireflyPos.z * fireflyPos.z;
         const jarRadius = BOIDS_CONFIG.jarRadius;
         const jarHeight = BOIDS_CONFIG.jarHeight / 2;
         const isOutside = horizontalDistSq > jarRadius * jarRadius || fireflyPos.y > jarHeight;
         
-        // Normalize brightness factor (0 = off, 1 = fully on)
+        // normalize brightness factor - 0 = off, 1 = fully on
         const brightnessFactor = (brightness - KURAMOTO_CONFIG.minBrightness) / 
                                  (KURAMOTO_CONFIG.maxBrightness - KURAMOTO_CONFIG.minBrightness);
         
-        // Scale brightness based on location
+        // scale brightness based on location
         let coreOpacity;
         let glowOpacity;
         let glowScale;
         
         if (isOutside) {
-            // Outside jar: moderate brightness, visible glow
-            coreOpacity = 0.7 + brightnessFactor * 0.3;  // 0.7 to 1.0
-            glowOpacity = 0.3 + brightnessFactor * 0.5;  // 0.3 to 0.8
-            glowScale = 0.25 + brightnessFactor * 0.35;  // 0.25 to 0.6
+            // outside jar - moderate brightness, visible glow
+            coreOpacity = 0.7 + brightnessFactor * 0.3;
+            glowOpacity = 0.3 + brightnessFactor * 0.5;
+            glowScale = 0.25 + brightnessFactor * 0.35;
         } else {
-            // Inside jar: always visible core, controlled glow to prevent overwhelming
-            coreOpacity = 0.85 + brightnessFactor * 0.15; // 0.85 to 1.0 - always visible
-            glowOpacity = 0.2 + brightnessFactor * 0.4;   // 0.2 to 0.6 - reduced max glow
-            glowScale = 0.2 + brightnessFactor * 0.25;    // 0.2 to 0.45 - smaller glow inside
+            // inside jar - always visible core, controlled glow to prevent overwhelming
+            coreOpacity = 0.85 + brightnessFactor * 0.15; // always visible
+            glowOpacity = 0.2 + brightnessFactor * 0.4;   // reduced max glow
+            glowScale = 0.2 + brightnessFactor * 0.25;    // smaller glow inside
         }
         
-        // Update core material opacity
+        // update core material opacity
         fireflyMaterials[i].opacity = coreOpacity;
         
-        // Update glow sprite
+        // update glow sprite
         const glowSprite = fireflyGlowSprites[i];
         glowSprite.material.opacity = glowOpacity;
         glowSprite.scale.set(glowScale, glowScale, 1);
         
-        // Update color - warm yellow always, brighter yellow-green when lit
+        // update color - warm yellow always, brighter yellow-green when lit
         const r = 1.0;
         const g = 0.85 + brightnessFactor * 0.15;
         const b = 0.3 + brightnessFactor * 0.2;
         fireflyMaterials[i].color.setRGB(r, g, b);
         glowSprite.material.color.setRGB(r, g, b * 0.5);
         
-        // Update point light if this firefly has one
+        // update point light if this firefly has one
         if (fireflyPointLights[i]) {
-            // Reduced intensity to prevent overwhelming glow
+            // reduced intensity to prevent overwhelming glow
             fireflyPointLights[i].intensity = isOutside ? 0.15 + brightnessFactor * 0.2 : 0.1 + brightnessFactor * 0.15;
             fireflyPointLights[i].color.setRGB(r, g, b);
         }
@@ -1150,22 +1123,22 @@ let pokeTime = 0;
 const POKE_DURATION = 1.0; // seconds
 
 function onMouseClick(event) {
-    // Convert click position to normalized device coordinates
+    // convert click position to normalized device coordinates
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     
     raycaster.setFromCamera(mouse, camera);
 
-    // Still intersect the JAR, not the fireflies, for accuracy
+    // still intersect the jar, not the fireflies, for accuracy
     const intersects = raycaster.intersectObject(jarBody);
     
     if (intersects.length > 0) {
         pokePosition = intersects[0].point;
-        pokeTime = 0; // Reset timer to start the effect
+        pokeTime = 0; // reset timer to start the effect
     }
 }
 
-// Mouse drag handlers for camera rotation
+// mouse drag handlers for camera rotation
 let dragStartX = 0;
 let dragStartY = 0;
 let hasDragged = false;
@@ -1186,18 +1159,18 @@ function onMouseMove(event) {
     const deltaX = event.clientX - previousMouseX;
     const deltaY = event.clientY - previousMouseY;
     
-    // Check if we've moved enough to count as a drag
+    // check if we've moved enough to count as a drag
     const totalDragX = Math.abs(event.clientX - dragStartX);
     const totalDragY = Math.abs(event.clientY - dragStartY);
     if (totalDragX > DRAG_THRESHOLD || totalDragY > DRAG_THRESHOLD) {
         hasDragged = true;
     }
     
-    // Update camera rotation
+    // update camera rotation
     cameraEuler.y -= deltaX * MOUSE_SENSITIVITY;
     cameraEuler.x -= deltaY * MOUSE_SENSITIVITY;
     
-    // Clamp vertical rotation to prevent flipping
+    // clamp vertical rotation to prevent flipping
     cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraEuler.x));
     
     camera.quaternion.setFromEuler(cameraEuler);
@@ -1207,7 +1180,7 @@ function onMouseMove(event) {
 }
 
 function onMouseUp(event) {
-    // Only trigger click if we didn't drag
+    // only trigger click if we didn't drag
     if (!hasDragged && isDragging) {
         onMouseClick(event);
     }
@@ -1215,55 +1188,55 @@ function onMouseUp(event) {
     hasDragged = false;
 }
 
-// First-person camera zoom (FOV-based)
-let targetFOV = 75; // Target FOV for smooth zoom
-const MIN_FOV = 10;   // Maximum zoom in
-const MAX_FOV = 120;  // Maximum zoom out
-const ZOOM_SPEED = 50; // How fast to zoom (degrees per second)
-const ZOOM_SMOOTHNESS = 8; // Smooth interpolation speed
+// first-person camera zoom - fov-based
+let targetFOV = 75; // target fov for smooth zoom
+const MIN_FOV = 10;   // maximum zoom in
+const MAX_FOV = 120;  // maximum zoom out
+const ZOOM_SPEED = 50; // how fast to zoom - degrees per second
+const ZOOM_SMOOTHNESS = 8; // smooth interpolation speed
 
 function handleZoom(deltaTime) {
-    // Smoothly interpolate to target FOV
+    // smoothly interpolate to target fov
     if (Math.abs(camera.fov - targetFOV) > 0.1) {
         camera.fov += (targetFOV - camera.fov) * ZOOM_SMOOTHNESS * deltaTime;
         camera.updateProjectionMatrix();
     }
 }
 
-// Zoom in/out with mouse wheel (first-person style)
+// zoom in/out with mouse wheel - first-person style
 function onMouseWheel(event) {
     event.preventDefault();
     
-    // Adjust target FOV based on wheel direction
-    // Scrolling up (negative deltaY) = zoom in (decrease FOV)
-    // Scrolling down (positive deltaY) = zoom out (increase FOV)
-    const zoomDelta = (event.deltaY > 0 ? 1 : -1) * ZOOM_SPEED * 0.016; // Normalize to ~60fps
+    // adjust target fov based on wheel direction
+    // scrolling up (negative deltay) = zoom in (decrease fov)
+    // scrolling down (positive deltay) = zoom out (increase fov)
+    const zoomDelta = (event.deltaY > 0 ? 1 : -1) * ZOOM_SPEED * 0.016; // normalize to ~60fps
     targetFOV += zoomDelta;
     
-    // Clamp target FOV to min/max limits
+    // clamp target fov to min/max limits
     targetFOV = Math.max(MIN_FOV, Math.min(MAX_FOV, targetFOV));
 }
 
 function getRepulsion(fireflyIndex) {
     if (!pokePosition) return new THREE.Vector3();
 
-    const REPULSION_RADIUS = 3.5; // Slightly larger radius
-    const MAX_REPULSION_FORCE = 2.0; // Much stronger kick
+    const REPULSION_RADIUS = 3.5; // slightly larger radius
+    const MAX_REPULSION_FORCE = 2.0; // much stronger kick
 
     const pos = fireflies[fireflyIndex].position;
     const distance = pos.distanceTo(pokePosition);
 
-    // Only affect fireflies inside the radius
+    // only affect fireflies inside the radius
     if (distance < REPULSION_RADIUS) {
         const steer = new THREE.Vector3().subVectors(pos, pokePosition);
         steer.normalize();
 
-        // INVERSE SQUARE: Creates a much sharper "wall" of force
-        // The closer to the center, the force increases exponentially
+        // inverse square - creates a much sharper "wall" of force
+        // the closer to the center, the force increases exponentially
         const strength = 1 - (distance / REPULSION_RADIUS);
         const exponentialStrength = strength * strength; 
         
-        // Weight by time: Strongest immediately after click
+        // weight by time - strongest immediately after click
         const timeWeight = 1 - (pokeTime / POKE_DURATION);
         
         return steer.multiplyScalar(MAX_REPULSION_FORCE * exponentialStrength * timeWeight);
@@ -1283,7 +1256,7 @@ function updatePokeEffect(deltaTime) {
 }
 
 // ==================== KEYBOARD INTERACTIONS ====================
-// Track which keys are currently pressed for smooth movement
+// track which keys are currently pressed for smooth movement
 const keysPressed = {
     w: false,
     a: false,
@@ -1293,11 +1266,11 @@ const keysPressed = {
     e: false
 };
 
-const CAMERA_MOVE_SPEED = 10; // Units per second
-const FIREFLY_CATCH_RADIUS_INSIDE = 0.5; // Distance at which camera catches fireflies inside jar
-const FIREFLY_CATCH_RADIUS_OUTSIDE = 1.5; // Larger radius for fireflies outside jar (easier to catch)
+const CAMERA_MOVE_SPEED = 10; // units per second
+const FIREFLY_CATCH_RADIUS_INSIDE = 0.5; // distance at which camera catches fireflies inside jar
+const FIREFLY_CATCH_RADIUS_OUTSIDE = 1.5; // larger radius for fireflies outside jar - easier to catch
 
-// Bug counter
+// bug counter
 let bugsCaught = 0;
 const bugCounterElement = document.getElementById('bugs-killed');
 
@@ -1310,33 +1283,33 @@ function updateBugCounter() {
 function onKeyDown(event) {
     const key = event.key.toLowerCase();
     
-    // Handle arrow keys (they don't get lowercased)
+    // handle arrow keys - they don't get lowercased
     if (event.key === 'q' || event.key === 'e') {
         keysPressed[event.key] = true;
         return;
     }
     
-    // Handle movement keys
+    // handle movement keys
     if (key in keysPressed) {
         keysPressed[key] = true;
     }
     
-    // Handle toggle keys
+    // handle toggle keys
     switch (key) {
-        case ' ': // Spacebar - open/close jar
+        case ' ': // spacebar - open/close jar
             jarOpen = !jarOpen;
             break;
-        case 'r': // Reset
+        case 'r': // reset
             resetSimulation();
             break;
-        case 'f': // Toggle frosted glass
+        case 'f': // toggle frosted glass
             toggleFrostedGlass();
             break;
     }
 }
 
 function onKeyUp(event) {
-    // Handle arrow keys (they don't get lowercased)
+    // handle arrow keys - they don't get lowercased
     if (event.key === 'q' || event.key === 'e') {
         keysPressed[event.key] = false;
         return;
@@ -1351,11 +1324,11 @@ function onKeyUp(event) {
 function updateCameraMovement(deltaTime) {
     const moveDistance = CAMERA_MOVE_SPEED * deltaTime;
     
-    // Get forward and right vectors from camera orientation
+    // get forward and right vectors from camera orientation
     const forward = new THREE.Vector3(0, 0, -1);
     const right = new THREE.Vector3(1, 0, 0);
     
-    // Apply camera's Y rotation to get world-space directions (ignore pitch for movement)
+    // apply camera's y rotation to get world-space directions - ignore pitch for movement
     forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraEuler.y);
     right.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraEuler.y);
 
@@ -1372,7 +1345,7 @@ function updateCameraMovement(deltaTime) {
         camera.position.add(right.clone().multiplyScalar(-moveDistance));
     }
 
-    // move up/down with Q/E keys
+    // move up/down with q/e keys
     if (keysPressed.q) {
         camera.position.y += moveDistance;
     }
@@ -1382,12 +1355,12 @@ function updateCameraMovement(deltaTime) {
 }
 
 function isFireflyOutsideJar(fireflyPos) {
-    // Check if firefly is outside the jar boundaries
+    // check if firefly is outside the jar boundaries
     const horizontalDistSq = fireflyPos.x * fireflyPos.x + fireflyPos.z * fireflyPos.z;
     const jarRadius = BOIDS_CONFIG.jarRadius;
     const jarHeight = BOIDS_CONFIG.jarHeight / 2;
     
-    // Firefly is outside if it's beyond the jar walls OR above the jar rim
+    // firefly is outside if it's beyond the jar walls or above the jar rim
     const isOutsideWalls = horizontalDistSq > jarRadius * jarRadius;
     const isAboveRim = fireflyPos.y > jarHeight;
     
