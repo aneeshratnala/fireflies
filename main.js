@@ -1601,34 +1601,6 @@ window.addEventListener('resize', () => {
     bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ==================== OBJ LOADER SETUP (for future use) ====================
-// Example function to load jar model (commented out for now)
-/*
-function loadJarModel(path) {
-    const loader = new OBJLoader();
-    loader.load(
-        path,
-        (object) => {
-            // Process loaded object
-            object.traverse((child) => {
-                if (child.isMesh) {
-                    child.material = jarMaterial;
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                }
-            });
-            jarGroup.add(object);
-        },
-        (progress) => {
-            console.log('Loading progress:', progress);
-        },
-        (error) => {
-            console.error('Error loading model:', error);
-        }
-    );
-}
-*/
-
 console.log('Fireflies simulation initialized!');
 console.log('Features: Kuramoto model synchronization - watch fireflies sync their flashing!');
 console.log('Controls: Click to poke fireflies, hold & drag to look around, Spacebar to open jar, R to reset, F to toggle frosted glass');
